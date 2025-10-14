@@ -1,5 +1,8 @@
 import os
 import shutil
+import subprocess
+import sys
+import signal
 from typing import Optional, Tuple, List
 
 from docker import from_env as docker_from_env, errors as docker_errors
@@ -103,44 +106,107 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("CMD [\"/app/gravix_runner.sh\"]\n")
 
 
-def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
-    client = docker_from_env()
-    image_tag = f"gravixhost_{user_id}_{bot_id}".lower()
+def _docker_available() -> bool:
     try:
-        requirements = detect_requirements(workspace)
-        write_runner_and_dockerfile(workspace, entry=entry, requirements=requirements)
-        # Build
-        log_event(f"Building runtime for {bot_id}")
-        client.images.build(path=workspace, tag=image_tag, rm=True)
-        # Run with resource limits
-        env = {"TELEGRAM_TOKEN": token}
-        host_cfg = client.api.create_host_config(
-            nano_cpus=int(float(RUNTIME_CPU_LIMIT) * 1e9),
-            mem_limit=RUNTIME_MEM_LIMIT,
-            auto_remove=True,
-            restart_policy={"Name": "unless-stopped"}
-        )
-        create_kwargs = {
-            "image": image_tag,
-            "name": image_tag,
-            "environment": env,
-            "host_config": host_cfg,
-        }
-        if RUNTIME_NETWORK:
-            create_kwargs["network"] = RUNTIME_NETWORK
-        container = client.api.create_container(**create_kwargs)
-        client.api.start(container=container.get("Id"))
-        runtime_id = container.get("Id")
-        log_event(f"Runtime started {runtime_id} for {bot_id}")
-        return True, runtime_id, None
-    except docker_errors.BuildError:
-        return False, None, "build_error"
+        client = docker_from_env()
+        # will raise if docker not reachable
+        client.ping()
+        return True
+    except Exception:
+        return False
+
+
+def _run_locally(workspace: str, entry: Optional[str], token: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Fallback runner when Docker isn't available.
+    Creates a venv inside the workspace, installs requirements, and starts the bot.
+    Returns (ok, runtime_id, err). runtime_id is in form 'proc:<pid>'
+    """
+    entry_file = entry or "bot.py"
+    venv_dir = os.path.join(workspace, ".venv")
+    python_bin = os.path.join(venv_dir, "bin", "python")
+    pip_bin = os.path.join(venv_dir, "bin", "pip")
+
+    try:
+        # Create virtual environment
+        if not os.path.exists(python_bin):
+            subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
+
+        # Install requirements if present
+        req_file = os.path.join(workspace, "requirements.txt")
+        if os.path.exists(req_file):
+            subprocess.check_call([pip_bin, "install", "-r", req_file])
+
+        # Best-effort: install autodetected requirements
+        autodetected = detect_requirements(workspace)
+        if autodetected:
+            try:
+                subprocess.check_call([pip_bin, "install", *autodetected])
+            except Exception:
+                # non-fatal
+                pass
+
+        env = os.environ.copy()
+        env["TELEGRAM_TOKEN"] = token
+        # Start the process detached
+        proc = subprocess.Popen([python_bin, entry_file], cwd=workspace, env=env)
+        log_event(f"Local runtime started pid={proc.pid}")
+        return True, f"proc:{proc.pid}", None
     except Exception as e:
         return False, None, str(e)
 
 
+def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
+    image_tag = f"gravixhost_{user_id}_{bot_id}".lower()
+    # Try Docker path first
+    if _docker_available():
+        client = docker_from_env()
+        try:
+            requirements = detect_requirements(workspace)
+            write_runner_and_dockerfile(workspace, entry=entry, requirements=requirements)
+            # Build
+            log_event(f"Building runtime for {bot_id}")
+            client.images.build(path=workspace, tag=image_tag, rm=True)
+            # Run with resource limits
+            env = {"TELEGRAM_TOKEN": token}
+            host_cfg = client.api.create_host_config(
+                nano_cpus=int(float(RUNTIME_CPU_LIMIT) * 1e9),
+                mem_limit=RUNTIME_MEM_LIMIT,
+                auto_remove=True,
+                restart_policy={"Name": "unless-stopped"}
+            )
+            create_kwargs = {
+                "image": image_tag,
+                "name": image_tag,
+                "environment": env,
+                "host_config": host_cfg,
+            }
+            if RUNTIME_NETWORK:
+                create_kwargs["network"] = RUNTIME_NETWORK
+            container = client.api.create_container(**create_kwargs)
+            client.api.start(container=container.get("Id"))
+            runtime_id = container.get("Id")
+            log_event(f"Runtime started {runtime_id} for {bot_id}")
+            return True, runtime_id, None
+        except docker_errors.BuildError:
+            return False, None, "build_error"
+        except Exception as e:
+            # Fall back to local if the daemon becomes unavailable mid-way
+            log_event(f"Docker path failed: {e}. Falling back to local runner.")
+            return _run_locally(workspace, entry, token)
+    else:
+        # No Docker available
+        log_event("Docker not available. Using local runner.")
+        return _run_locally(workspace, entry, token)
+
+
 def stop_runtime(runtime_id: str) -> bool:
     try:
+        if runtime_id.startswith("proc:"):
+            pid = int(runtime_id.split(":", 1)[1])
+            os.kill(pid, signal.SIGTERM)
+            return True
+        # Docker container id
         client = docker_from_env()
         client.api.stop(runtime_id)
         return True
@@ -150,6 +216,9 @@ def stop_runtime(runtime_id: str) -> bool:
 
 def restart_runtime(runtime_id: str) -> bool:
     try:
+        if runtime_id.startswith("proc:"):
+            # Not supported for local process
+            return False
         client = docker_from_env()
         client.api.restart(runtime_id)
         return True
