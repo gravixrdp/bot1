@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict
 
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message, CallbackQuery, FSInputFile, Document
+from aiogram.types import Message, CallbackQuery, Document
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 
 from .config import MASTER_BOT_TOKEN, APP_NAME
 from .keyboards import main_menu
-from .utils import bold, code, is_valid_token, human_dt
+from .utils import bold, code, human_dt, is_valid_token
 from .storage import (
     get_user,
     update_user,
@@ -74,7 +74,6 @@ async def cmd_help(message: Message):
 @router.message(Command("myinfo"))
 async def cmd_myinfo(message: Message):
     user = get_user(message.from_user.id)
-    active = get_active_bots(message.from_user.id)
     text = (
         "👤 User Info\n"
         f"• Name: {bold(message.from_user.full_name)}\n"
@@ -113,10 +112,61 @@ async def cmd_host(message: Message, state: FSMContext):
     await _start_host_flow(message, state)
 
 
-@router.callback_query(F.data == "host_start")
-async def cb_host_start(cb: CallbackQuery, state: FSMContext):
-    await _start_host_flow(cb.message, state)
-    await cb.answer()
+# Map reply keyboard button texts to actions
+@router.message(F.text == "📦 Host My Bot")
+async def on_host_btn(message: Message, state: FSMContext):
+    await _start_host_flow(message, state)
+
+
+@router.message(F.text.in_(["📘 How it Works", "ℹ️ How it Works"]))
+async def on_how_it_works(message: Message):
+    text = (
+        "📘 How it Works\n"
+        "• Upload your bot code (prefer " + code("bot.py") + " or a .zip).\n"
+        "• Send your bot token.\n"
+        "• We prepare a secure runtime and get your bot online.\n"
+        "• Free plan: 1 hour uptime; Premium: unlimited.\n"
+    )
+    await message.answer(text, reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "💰 Upgrade to Premium")
+async def on_upgrade_btn(message: Message):
+    await cmd_upgrade(message)
+
+
+@router.message(F.text == "👤 My Info")
+async def on_my_info_btn(message: Message):
+    await cmd_myinfo(message)
+
+
+@router.message(F.text == "⚙️ Manage My Bots")
+async def on_manage_bots(message: Message):
+    user = get_user(message.from_user.id)
+    bots = get_user_bots(message.from_user.id)
+    lines = ["⚙️ Manage My Bots"]
+    for b in bots:
+        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    await message.answer("\n".join(lines), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "🏠 Main Menu")
+async def on_main_menu(message: Message):
+    user = get_user(message.from_user.id)
+    await message.answer("🏠 Main Menu", reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "💬 Contact Admin")
+async def on_contact_admin(message: Message):
+    user = get_user(message.from_user.id)
+    if not user.get("is_premium"):
+        await message.answer("This feature is available for premium users only.", parse_mode=ParseMode.HTML)
+        return
+    await message.answer(
+        "💬 Contact Admin\nSend a message starting with " + code("admin:") + " and we'll forward it to the admin.",
+        reply_markup=main_menu(True),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def _start_host_flow(message: Message, state: FSMContext):
@@ -173,7 +223,7 @@ async def upload_error(message: Message):
 @router.message(HostStates.waiting_token)
 async def handle_token(message: Message, state: FSMContext):
     token = message.text.strip()
-    if not is_valid_token(token):
+    if not await is_valid_token(token):
         await message.answer(
             "❌ That doesn't look like a valid bot token.\nPlease check again from @BotFather.",
             reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
@@ -245,6 +295,7 @@ async def cmd_stop(message: Message):
         await message.answer("⚙️ Internal error occurred while processing your request.\nDon't worry — our system automatically handles this.\nPlease retry in a few minutes.", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
 
 
+# Keep callback-based handlers for backward compatibility with any existing inline keyboards
 @router.callback_query(F.data == "my_info")
 async def cb_myinfo(cb: CallbackQuery):
     await cmd_myinfo(cb.message)
@@ -264,7 +315,6 @@ async def cb_contact_admin(cb: CallbackQuery):
         await cb.message.answer("This feature is available for premium users only.", parse_mode=ParseMode.HTML)
         await cb.answer()
         return
-    from .config import ADMIN_TELEGRAM_ID
     await cb.message.answer(
         "💬 Contact Admin\nSend a message starting with " + code("admin:") + " and we'll forward it to the admin.",
         reply_markup=main_menu(True),

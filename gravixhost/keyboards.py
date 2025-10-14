@@ -1,28 +1,35 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 
 
-def main_menu(is_premium: bool) -> InlineKeyboardMarkup:
+# Reply keyboard that stays above the input field and sends button text as a message
+def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
     if is_premium:
-        buttons = [
-            [InlineKeyboardButton(text="📦 Host My Bot", callback_data="host_start")],
-            [InlineKeyboardButton(text="⚙️ Manage My Bots", callback_data="manage_bots")],
-            [InlineKeyboardButton(text="🧩 Extra Support", callback_data="extra_support")],
-            [InlineKeyboardButton(text="📘 How it Works", callback_data="how_it_works")],
-            [InlineKeyboardButton(text="💬 Contact Admin", callback_data="contact_admin")],
-            [InlineKeyboardButton(text="👤 My Info", callback_data="my_info")],
+        rows = [
+            [KeyboardButton(text="📦 Host My Bot")],
+            [KeyboardButton(text="⚙️ Manage My Bots")],
+            [KeyboardButton(text="📘 How it Works")],
+            [KeyboardButton(text="💬 Contact Admin")],
+            [KeyboardButton(text="👤 My Info")],
+            [KeyboardButton(text="🏠 Main Menu")],
         ]
     else:
-        buttons = [
-            [InlineKeyboardButton(text="📦 Host My Bot", callback_data="host_start")],
-            [InlineKeyboardButton(text="ℹ️ How it Works", callback_data="how_it_works")],
-            [InlineKeyboardButton(text="💰 Upgrade to Premium", callback_data="upgrade")],
-            [InlineKeyboardButton(text="👤 My Info", callback_data="my_info")],
+        rows = [
+            [KeyboardButton(text="📦 Host My Bot")],
+            [KeyboardButton(text="ℹ️ How it Works")],
+            [KeyboardButton(text="💰 Upgrade to Premium")],
+            [KeyboardButton(text="👤 My Info")],
+            [KeyboardButton(text="🏠 Main Menu")],
         ]
-    buttons.append([InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 def admin_fixed_bar() -> InlineKeyboardMarkup:
+    # Admin panel can remain as inline buttons as it is a separate interface
     buttons = [
         [
             InlineKeyboardButton(text="👥 Users", callback_data="admin_users"),

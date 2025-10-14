@@ -3,7 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 
-from .config import ADMIN_TELEGRAM_ID
+from .config import ADMIN_TELEGRAM_ID, ADMIN_TELEGRAM_IDS
 from .keyboards import admin_fixed_bar, main_menu
 from .storage import (
     _read_db,
@@ -20,7 +20,7 @@ router = Router(name="admin")
 
 
 def is_admin(user_id: int) -> bool:
-    return ADMIN_TELEGRAM_ID and user_id == ADMIN_TELEGRAM_ID
+    return bool(ADMIN_TELEGRAM_IDS) and user_id in ADMIN_TELEGRAM_IDS
 
 
 @router.message(Command("admin"))
