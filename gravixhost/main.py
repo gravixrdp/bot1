@@ -12,7 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
-from .config import MASTER_BOT_TOKEN, APP_NAME
+from .config import MASTER_BOT_TOKEN, APP_NAME, ADMIN_TELEGRAM_ID
 from .keyboards import main_menu, support_url_kb, user_manage_menu, bots_action_list
 from .utils import bold, code, human_dt, is_valid_token, italic, underline, strike, pre
 from .storage import (
@@ -803,7 +803,8 @@ async def cb_user_logs(cb: CallbackQuery):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_modeeMode.HTML)
+            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.H_codeTMnewL</)
+)
             chunk = []
             current_len = 0
         chunk.append(line)
