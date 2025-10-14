@@ -11,6 +11,19 @@ from ..config import UPLOADS_DIR, RUNTIME_CPU_LIMIT, RUNTIME_MEM_LIMIT, RUNTIME_
 from ..storage import log_event
 
 
+# Map common import names to their PyPI package equivalents
+# This helps when users write code like "import telebot" but the pip package is "pyTelegramBotAPI"
+_PYPI_MAP = {
+    "telebot": "pyTelegramBotAPI",
+    "PIL": "pillow",
+    "cv2": "opencv-python",
+    "dotenv": "python-dotenv",
+    "bs4": "beautifulsoup4",
+    "yaml": "pyyaml",
+    "Crypto": "pycryptodome",
+}
+
+
 def ensure_user_dir(user_id: int) -> str:
     path = os.path.join(UPLOADS_DIR, str(user_id))
     os.makedirs(path, exist_ok=True)
@@ -38,6 +51,33 @@ def save_upload(user_id: int, bot_id: str, file_name: str, content: bytes) -> st
     return path
 
 
+def _normalize_requirement(name: str) -> Optional[str]:
+    """
+    Normalize an import/module name or raw requirement line to a PyPI-installable requirement.
+    - Maps common import names to their actual PyPI package
+    - Filters obviously invalid placeholders (e.g., '%(module)s')
+    """
+    if not name:
+        return None
+    s = name.strip()
+    if not s or s.startswith("#"):
+        return None
+    # Skip obvious placeholders from mis-templated requirements
+    if "%(" in s and ")s" in s:
+        return None
+    # If the line looks like a valid pinned requirement (contains space is suspicious)
+    if " " in s:
+        # Spaces in requirement lines are usually invalid, skip them
+        return None
+    # If it's already a requirement spec (contains ==, >=, etc.) keep it
+    for sep in ("==", ">=", "<=", "~=", ">", "<", "!="):
+        if sep in s:
+            return s
+    # Otherwise treat as a module/import name and map if needed
+    base = s.split(".")[0]
+    return _PYPI_MAP.get(base, base)
+
+
 def detect_requirements(workspace: str) -> List[str]:
     reqs = set()
     # If requirements.txt exists, use it
@@ -46,9 +86,9 @@ def detect_requirements(workspace: str) -> List[str]:
         try:
             with open(req_path, "r") as f:
                 for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        reqs.add(line)
+                    norm = _normalize_requirement(line)
+                    if norm:
+                        reqs.add(norm)
         except Exception:
             pass
 
@@ -65,7 +105,9 @@ def detect_requirements(workspace: str) -> List[str]:
                             # Skip stdlib/common
                             skip = {"os", "sys", "asyncio", "typing", "time", "json", "re", "dataclasses", "datetime"}
                             if mod and mod not in skip:
-                                reqs.add(mod)
+                                norm = _normalize_requirement(mod)
+                                if norm:
+                                    reqs.add(norm)
         except Exception:
             pass
 
@@ -93,15 +135,14 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("WORKDIR /app\n")
         f.write("COPY . /app\n")
         f.write("RUN pip install --no-cache-dir --upgrade pip\n")
+        # Always try to install user-provided requirements, but don't fail the build if they contain invalid lines
+        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi\n")
         if requirements:
-            # write requirements.txt
+            # write normalized autodetected requirements
             req_path = os.path.join(workspace, "requirements.autodetected.txt")
             with open(req_path, "w") as rf:
                 rf.write("\n".join(requirements))
-            f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
             f.write("RUN pip install -r requirements.autodetected.txt || true\n")
-        else:
-            f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
         f.write("ENV PYTHONUNBUFFERED=1\n")
         f.write("CMD [\"/app/gravix_runner.sh\"]\n")
 
@@ -132,19 +173,21 @@ def _run_locally(workspace: str, entry: Optional[str], token: str) -> Tuple[bool
         if not os.path.exists(python_bin):
             subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
 
-        # Install requirements if present
+        # Install requirements if present (don't abort on errors)
         req_file = os.path.join(workspace, "requirements.txt")
         if os.path.exists(req_file):
-            subprocess.check_call([pip_bin, "install", "-r", req_file])
+            try:
+                subprocess.check_call([pip_bin, "install", "-r", req_file])
+            except Exception as e:
+                log_event(f"Requirements installation failed: {e}. Continuing with autodetected packages.")
 
-        # Best-effort: install autodetected requirements
+        # Best-effort: install autodetected requirements (normalized)
         autodetected = detect_requirements(workspace)
         if autodetected:
             try:
                 subprocess.check_call([pip_bin, "install", *autodetected])
-            except Exception:
-                # non-fatal
-                pass
+            except Exception as e:
+                log_event(f"Autodetected requirements installation failed: {e}. Continuing without them.")
 
         env = os.environ.copy()
         env["TELEGRAM_TOKEN"] = token
