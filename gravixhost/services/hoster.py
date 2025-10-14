@@ -304,6 +304,13 @@ except Exception:
             except Exception:
                 pass
 
+    # Decide run mode from settings
+    try:
+        settings = get_settings()
+        run_mode = str(settings.get("run_mode", "runner")).lower()
+    except Exception:
+        run_mode = "runner"
+
     dockerfile = os.path.join(workspace, "Dockerfile")
     with open(dockerfile, "w") as f:
         f.write("FROM python:3.11-slim\n")
@@ -318,8 +325,12 @@ except Exception:
         # Then try user requirements if present
         f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
         f.write("ENV PYTHONUNBUFFERED=1\n")
-        # Use the Python runner to ensure token injection works for simple scripts
-        f.write('CMD ["python", "/app/gravix_runner.py"]\n')
+        if run_mode == "direct":
+            # Directly run user's entry, token is available via env (BOT_TOKEN/TOKEN/TELEGRAM_TOKEN)
+            f.write(f'CMD ["python", "-u", "/app/{entry_file}"]\n')
+        else:
+            # Use the Python runner to ensure token injection works for simple scripts
+            f.write('CMD ["python", "/app/gravix_runner.py"]\n')
     # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
     entry_file = entry or "bot.py"
 
