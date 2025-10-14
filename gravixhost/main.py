@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile, Document
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -314,7 +315,7 @@ async def on_timeout_notify(bot: Bot, user_id: int, bot_id: str):
 def create_app():
     if not MASTER_BOT_TOKEN:
         raise RuntimeError("MASTER_BOT_TOKEN not set")
-    bot = Bot(MASTER_BOT_TOKEN, parse_mode=ParseMode.MARKDOWN_V2)
+    bot = Bot(MASTER_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2))
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     dp.include_router(admin_router)
