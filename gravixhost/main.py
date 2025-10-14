@@ -589,8 +589,33 @@ async def handle_token(message: Message, state: FSMContext):
     await message.answer("🔧 Setting up your hosting environment...", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
     ok, runtime_id, err = build_and_run(message.from_user.id, pending.bot_record_id, token, pending.workspace, entry=pending.entry_name)
     if not ok:
+        details = f"\nDetails: {code(str(err))}" if err else ""
+        if err == "docker_unavailable":
+            msg = (
+                bold("⚠️ Docker not available") + "\n"
+                + "The hosting node cannot reach Docker. Please install and start Docker, and allow this user to access it.\n"
+                + "Quick fix (Ubuntu):\n"
+                + pre("sudo apt-get update && sudo apt-get install -y docker.io\n"
+                      "sudo systemctl enable --now docker\n"
+                      "sudo usermod -aG docker $USER && newgrp docker")
+            )
+        elif err == "build_error":
+            msg = (
+                bold("⚠️ Build failed") + "\n"
+                + "Docker image build failed. Check your requirements and that the project builds in Docker locally."
+                + details
+            )
+        else:
+            msg = (
+                bold("⚠️ Setup failed") + "\n"
+                + "Please double-check your code or try again later.\n"
+                + "Tip: Ensure your entry file runs with "
+                + code(f"python {pending.entry_name or 'your_file.py'}")
+                + " locally and uses valid imports."
+                + details
+            )
         await message.answer(
-            f"{bold('⚠️ Setup failed')}\nPlease double-check your code or try again later.\nTip: Ensure your entry file runs with `python {code(pending.entry_name or 'your_file.py')}` locally and uses valid imports.",
+            msg,
             reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
             parse_mode=ParseMode.HTML,
         )
