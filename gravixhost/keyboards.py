@@ -52,12 +52,16 @@ def user_manage_menu() -> ReplyKeyboardMarkup:
 
 # Admin menus as persistent reply keyboards
 def admin_menu() -> ReplyKeyboardMarkup:
-    # Keep compact two-per-row layout for admin
-    rows = [
-        [KeyboardButton(text="👥 Users"), KeyboardButton(text="💎 Premium")],
-        [KeyboardButton(text="📦 Apps"), KeyboardButton(text="🧾 Logs")],
-        [KeyboardButton(text="⚙️ Settings"), KeyboardButton(text="🏠 Main Menu")],
-    ]
+    # Single horizontal row
+    rows = [[
+        KeyboardButton(text="👥 Users"),
+        KeyboardButton(text="💎 Premium"),
+        KeyboardButton(text="📦 Apps"),
+        KeyboardButton(text="🧾 Logs"),
+        KeyboardButton(text="🗑️ Clear Admin Logs"),
+        KeyboardButton(text="⚙️ Settings"),
+        KeyboardButton(text="🏠 Main Menu"),
+    ]]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 

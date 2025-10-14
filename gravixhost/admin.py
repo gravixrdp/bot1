@@ -107,6 +107,15 @@ async def admin_logs_msg(message: Message):
     body = pre("\n".join(["• {0} — {1}".format(l['time'], l['event']) for l in logs]))
     await message.answer(header + "\n" + body, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
+@router.message(F.text == "🗑️ Clear Admin Logs")
+async def admin_clear_logs(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    from .storage import clear_admin_logs, log_event_admin
+    clear_admin_logs()
+    log_event_admin(f"Admin {message.from_user.id} cleared admin logs")
+    await message.answer("✅ Admin logs cleared.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
 
 @router.message(F.text == "⚙️ Settings")
 async def admin_settings_msg(message: Message):
@@ -206,7 +215,7 @@ async def admin_stopbot(message: Message):
     if not is_admin(message.from_user.id):
         return
     bot_id = message.text.strip().split()[1]
-    from .storage import get_bot, mark_stopped
+    from .storage import get_bot, mark_stopped, log_event_admin
     from .services.hoster import stop_runtime
     b = get_bot(bot_id)
     if not b:
@@ -216,6 +225,7 @@ async def admin_stopbot(message: Message):
     if rid:
         stop_runtime(rid)
     mark_stopped(bot_id)
+    log_event_admin(f"Admin {message.from_user.id} stopped bot {bot_id}")
     await message.answer(f"🛑 Stopped {code(bot_id)}", parse_mode=ParseMode.HTML, reply_markup=admin_menu_apps())
 
 

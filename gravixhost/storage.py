@@ -26,9 +26,59 @@ def _write_db(db: Dict[str, Any]):
         json.dump(db, f, indent=2)
 
 
-def log_event(event: str):
+def log_event(event: str, scope: str = "user"):
+    """
+    Append a log entry.
+    scope:
+      - "admin": admin actions (not auto-cleared)
+      - "user": user/system/app events (auto-cleared after 30 minutes)
+    """
     db = _read_db()
-    db["logs"].append({"time": datetime.utcnow().isoformat(), "event": event})
+    db.setdefault("logs", [])
+    db["logs"].append({"time": datetime.utcnow().isoformat(), "event": event, "scope": scope})
+    _write_db(db)
+
+
+def log_event_admin(event: str):
+    log_event(event, scope="admin")
+
+
+def purge_old_logs(max_age_minutes: int = 30):
+    """
+    Remove logs older than max_age_minutes unless scope == 'admin'.
+    Run frequently; it's idempotent and cheap.
+    """
+    db = _read_db()
+    logs = db.get("logs", [])
+    if not logs:
+        return
+    cutoff = datetime.utcnow() - timedelta(minutes=max_age_minutes)
+    kept = []
+    for entry in logs:
+        try:
+            t = datetime.fromisoformat(entry.get("time", ""))
+        except Exception:
+            t = None
+        scope = entry.get("scope", "user")
+        if scope == "admin":
+            kept.append(entry)
+        else:
+            # keep if newer than cutoff
+            if t and t >= cutoff:
+                kept.append(entry)
+    db["logs"] = kept
+    _write_db(db)
+
+
+def clear_admin_logs():
+    """
+    Remove all logs with scope == 'admin'.
+    """
+    db = _read_db()
+    logs = db.get("logs", [])
+    if not logs:
+        return
+    db["logs"] = [e for e in logs if e.get("scope", "user") != "admin"]
     _write_db(db)
 
 
