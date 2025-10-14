@@ -340,8 +340,7 @@ async def help_restart_my_bot(message: Message):
         bold("♻️ Restart My Bot") + "\nTap a bot to restart it:",
         reply_markup=bots_action_list(bots, "Restart", "user_restart"),
         parse_mode=ParseMode.HTML,
- _code{bold(b['status'])}")
-    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    )
 
 
 @router.message(F.text.regexp(r"^stop\s+\S+$"))
