@@ -670,17 +670,22 @@ async def cb_contact_admin(cb: CallbackQuery):
 async def contact_admin_forward(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user.get("is_premium"):
+        await message.answer("This feature is available for premium users only.", parse_mode=ParseMode.HTML)
         await state.clear()
-AM_ID
+        return
     if not ADMIN_TELEGRAM_ID:
         await message.answer("Admin is not configured.", parse_mode=ParseMode.HTML)
+        await state.clear()
         return
-    await message.bot.send_message(
-        chat_id=ADMIN_TELEGRAM_ID,
-        text=f"📨 Message from {bold(message.from_user.full_name)} ({code(str(message.from_user.id))}):\n{message.text[6:]}",
-        parse_mode=ParseMode.HTML,
-    )
-    await message.answer("✅ Sent to admin.", parse_mode=ParseMode.HTML)
+    try:
+        await message.bot.send_message(
+            chat_id=ADMIN_TELEGRAM_ID,
+            text=f"📨 Message from {bold(message.from_user.full_name)} ({code(str(message.from_user.id))}):\n{message.text}",
+            parse_mode=ParseMode.HTML,
+        )
+        await message.answer("✅ Sent to admin.", parse_mode=ParseMode.HTML)
+    finally:
+        await state.clear()
 
 
 @router.callback_query(F.data == "how_it_works")
@@ -803,14 +808,13 @@ async def cb_user_logs(cb: CallbackQuery):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.H_codeTMnewL</)
-)
+            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await cb.message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
