@@ -353,24 +353,7 @@ def remove_workspace(workspace: str):
         pass
 
 
-def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
-    """
-    Fetch recent logs from a Docker container.
-    Returns a string or None if not available.
-    """
-    try:
-        if runtime_id.startswith("proc:"):
-            return None
-        client = docker_from_env()
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None
+
 
 
 def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
