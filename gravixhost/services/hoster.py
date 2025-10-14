@@ -23,6 +23,17 @@ _PYPI_MAP = {
     "Crypto": "pycryptodome",
 }
 
+# Modules that should never be attempted to install via pip (stdlib, meta, placeholders)
+_BLACKLIST = {
+    "__builtin__", "builtins", "__future__", "typing", "dataclasses", "asyncio",
+    "sys", "os", "json", "re", "time", "datetime", "pathlib", "subprocess", "logging",
+    "itertools", "functools", "collections", "math", "random", "hashlib", "hmac",
+    "base64", "threading", "multiprocessing", "urllib", "http", "email", "sqlite3",
+    "csv", "statistics", "enum", "types", "contextlib", "tempfile", "zipfile",
+    "tarfile", "shutil", "glob", "fnmatch", "importlib", "inspect", "traceback",
+    "argparse", "getopt", "site", "builtins", "io"
+}
+
 
 def ensure_user_dir(user_id: int) -> str:
     path = os.path.join(UPLOADS_DIR, str(user_id))
@@ -56,6 +67,7 @@ def _normalize_requirement(name: str) -> Optional[str]:
     Normalize an import/module name or raw requirement line to a PyPI-installable requirement.
     - Maps common import names to their actual PyPI package
     - Filters obviously invalid placeholders (e.g., '%(module)s')
+    - Skips stdlib and blacklisted module names
     """
     if not name:
         return None
@@ -75,6 +87,9 @@ def _normalize_requirement(name: str) -> Optional[str]:
             return s
     # Otherwise treat as a module/import name and map if needed
     base = s.split(".")[0]
+    # Skip private/dunder and blacklisted names
+    if base.startswith("_") or base in _BLACKLIST:
+        return None
     return _PYPI_MAP.get(base, base)
 
 
@@ -102,12 +117,10 @@ def detect_requirements(workspace: str) -> List[str]:
                         parts = line.replace("import ", " ").replace("from ", " ").split()
                         if parts:
                             mod = parts[0].split(".")[0]
-                            # Skip stdlib/common
-                            skip = {"os", "sys", "asyncio", "typing", "time", "json", "re", "dataclasses", "datetime"}
-                            if mod and mod not in skip:
-                                norm = _normalize_requirement(mod)
-                                if norm:
-                                    reqs.add(norm)
+                            # Normalize and filter through blacklist
+                            norm = _normalize_requirement(mod)
+                            if norm:
+                                reqs.add(norm)
         except Exception:
             pass
 
@@ -181,13 +194,15 @@ def _run_locally(workspace: str, entry: Optional[str], token: str) -> Tuple[bool
             except Exception as e:
                 log_event(f"Requirements installation failed: {e}. Continuing with autodetected packages.")
 
-        # Best-effort: install autodetected requirements (normalized)
+        # Best-effort: install autodetected requirements
         autodetected = detect_requirements(workspace)
         if autodetected:
-            try:
-                subprocess.check_call([pip_bin, "install", *autodetected])
-            except Exception as e:
-                log_event(f"Autodetected requirements installation failed: {e}. Continuing without them.")
+            # Install packages individually so one bad entry doesn't block others
+            for pkg in autodetected:
+                try:
+                    subprocess.check_call([pip_bin, "install", pkg])
+                except Exception as e:
+                    log_event(f"Autodetected requirement '{pkg}' failed: {e}. Skipping.")
 
         env = os.environ.copy()
         env["TELEGRAM_TOKEN"] = token
