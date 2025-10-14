@@ -214,14 +214,24 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("# Expose in env for libraries that read from environment\n")
         f.write("os.environ['BOT_TOKEN'] = token\n")
         f.write("os.environ['TELEGRAM_TOKEN'] = token\n")
+        f.write("os.environ['TOKEN'] = token\n")
+        f.write("os.environ['TELEGRAM_BOT_TOKEN'] = token\n")
         f.write("# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly\n")
-        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token}\n")
+        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\n")
         f.write("# Ensure current working directory is the app root\n")
         f.write("os.chdir(os.path.dirname(__file__))\n")
         f.write("# Run the user's entry file in this process\n")
-        f.write(f"runpy.run_path('{entry_file}', init_globals=init_globals)\n")
+        f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\n")
+        f.write("try:\n")
+        f.write("    runpy.run_path('" + entry_file + "', init_globals=init_globals)\n")
+        f.write("except SystemExit:\n")
+        f.write("    raise\n")
+        f.write("except Exception:\n")
+        f.write("    import traceback\n")
+        f.write("    traceback.print_exc()\n")
+        f.write("    sys.exit(1)\n")
 
-    # Shell runner kept for backward compatibility (not used by CMD anymore)
+    # Shell runner (not used by CMD anymore; kept for compatibility)
     runner_sh = os.path.join(workspace, "gravix_runner.sh")
     with open(runner_sh, "w") as f:
         f.write("#!/usr/bin/env bash\n")
@@ -247,127 +257,17 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("RUN pip install --no-cache-dir --upgrade pip\n")
         # Prefer installing autodetected requirements first (clean set)
         if req_auto_path:
-            f.write("RUN pip install -r requirements.autodetected.txt || true\n")
-        # Then try user requirements if present (but don't fail build)
-        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi\n")
+            f.write("RUN pip install -r requirements.autodetected.txt\n")
+        # Then try user requirements if present
+        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
         f.write("ENV PYTHONUNBUFFERED=1\n")
         # Use the Python runner to ensure token injection works for simple scripts
         f.write('CMD ["python", "/app/gravix_runner.py"]\n')
-    # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
-    entry_file = entry or "bot.py"
-
-    # Python runner: injects token into globals so common patterns like BOT_TOKEN/TOKEN work
-    runner_py = os.path.join(workspace, "gravix_runner.py")
-    with open(runner_py, "w") as f:
-        f.write("import os, runpy, sys\n")
-        f.write("token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''\n")
-        f.write("# Expose in env for libraries that read from environment\n")
-        f.write("os.environ['BOT_TOKEN'] = token\n")
-        f.write("os.environ['TELEGRAM_TOKEN'] = token\n")
-        f.write("# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly\n")
-        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token}\n")
-        f.write("# Ensure current working directory is the app root\n")
-        f.write("os.chdir(os.path.dirname(__file__))\n")
-        f.write("# Run the user's entry file in this process\n")
-        f.write(f"runpy.run_path('{entry_file}', init_globals=init_globals)\n")
-
-    # Shell runner kept for backward compatibility (not used by CMD anymore)
-    runner_sh = os.path.join(workspace, "gravix_runner.sh")
-    with open(runner_sh, "w") as f:
-        f.write("#!/usr/bin/env bash\n")
-        f.write("set -e\n")
-        f.write('export BOT_TOKEN="${TELEGRAM_TOKEN}"\n')
-        f.write("python gravix_runner.py\n")
-    os.chmod(runner_sh, 0o755)
-
-    # Write autodetected requirements file (preferred)
-    req_auto_path = None
-    if requirements:
-        req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
-        with open(req_auto_path, "w") as rf:
-            rf.write("\n".join(requirements))
-
-    dockerfile = os.path.join(workspace, "Dockerfile")
-    with open(dockerfile, "w") as f:
-        f.write("FROM python:3.11-slim\n")
-        f.write("WORKDIR /app\n")
-        f.write("COPY . /app\n")
-        # Basic system deps that frequently help builds (kept minimal)
-        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\n")
-        f.write("RUN pip install --no-cache-dir --upgrade pip\n")
-        # Prefer installing autodetected requirements first (clean set)
-        if req_auto_path:
-            f.write("RUN pip install -r requirements.autodetected.txt || true\n")
-        # Then try user requirements if present (but don't fail build)
-        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi\n")
-        f.write("ENV PYTHONUNBUFFERED=1\n")
-        # Use the Python runner to ensure token injection works for simple scripts
-        f.write('CMD ["python", "/app/gravix_runner.py"]\n')
-    # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
-    entry_file = entry or "bot.py"
-
-    # Python runner: injects token into globals so common patterns like BOT_TOKEN/TOKEN work
-    runner_py = os.path.join(workspace, "gravix_runner.py")
-    with open(runner_py, "w") as f:
-        f.write("import os, runpy, sys\\n")
-        f.write("token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''\\n")
-        f.write("# Expose in env for libraries that read from environment\\n")
-        f.write("os.environ['BOT_TOKEN'] = token\\n")
-        f.write("os.environ['TELEGRAM_TOKEN'] = token\\n")
-        f.write("os.environ['TOKEN'] = token\\n")
-        f.write("os.environ['TELEGRAM_BOT_TOKEN'] = token\\n")
-        f.write("# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly\\n")
-        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\\n")
-        f.write("# Ensure current working directory is the app root\\n")
-        f.write("os.chdir(os.path.dirname(__file__))\\n")
-        f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\\n")
-        f.write("try:\\n")
-        f.write("    runpy.run_path('" + entry_file + "', init_globals=init_globals)\\n")
-        f.write("except SystemExit:\\n")
-        f.write("    raise\\n")
-        f.write("except Exception:\\n")
-        f.write("    import traceback\\n")
-        f.write("    traceback.print_exc()\\n")
-        f.write("    sys.exit(1)\\n")
-
-    # Shell runner kept for backward compatibility (not used by CMD anymore)
-    runner_sh = os.path.join(workspace, "gravix_runner.sh")
-    with open(runner_sh, "w") as f:
-        f.write("#!/usr/bin/env bash\\n")
-        f.write("set -e\\n")
-        f.write("export BOT_TOKEN=\"${TELEGRAM_TOKEN}\"\\n")
-        f.write("python gravix_runner.py\\n")
-    os.chmod(runner_sh, 0o755)
-
-    # Write autodetected requirements file (preferred)
-    req_auto_path = None
-    if requirements:
-        req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
-        with open(req_auto_path, "w") as rf:
-            rf.write("\\n".join(requirements))
-
-    dockerfile = os.path.join(workspace, "Dockerfile")
-    with open(dockerfile, "w") as f:
-        f.write("FROM python:3.11-slim\\n")
-        f.write("WORKDIR /app\\n")
-        f.write("COPY . /app\\n")
-        # Basic system deps that frequently help builds (kept minimal)
-        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\\n")
-        f.write("RUN pip install --no-cache-dir --upgrade pip\\n")
-        # Prefer installing autodetected requirements first (clean set)
-        if req_auto_path:
-            f.write("RUN pip install -r requirements.autodetected.txt || true\\n")
-        # Then try user requirements if present (but don't fail build)
-        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi\\n")
-        f.write("ENV PYTHONUNBUFFERED=1\\n")
-        # Use the Python runner to ensure token injection works for simple scripts
-        f.write("CMD [\"python\", \"/app/gravix_runner.py\"]\\n")
 
 
 def _docker_available() -> bool:
     try:
         client = docker_from_env()
-        # will raise if docker not reachable
         client.ping()
         return True
     except Exception:
@@ -395,9 +295,12 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
         log_event(f"Building runtime for {bot_id}")
         client.images.build(path=workspace, tag=image_tag, rm=True)
         # Run with resource limits
-        env = {"TELEGRAM_TOKEN": token, "BOT_TOKEN": token, "TOKEN": token, "TELEGRAM_BOT_TOKEN": token}
-        # Load dynamic settings overr_codeidnewe</s
-GRAM_BOT_TOKEN": token}
+        env = {
+            "TELEGRAM_TOKEN": token,
+            "BOT_TOKEN": token,
+            "TOKEN": token,
+            "TELEGRAM_BOT_TOKEN": token
+        }
         # Load dynamic settings overrides
         settings = get_settings()
         try:
@@ -443,7 +346,6 @@ def stop_runtime(runtime_id: str) -> bool:
         try:
             client.api.stop(runtime_id, timeout=10)
         except Exception:
-            # It might already be stopped
             pass
         try:
             client.api.remove_container(runtime_id, force=True)
@@ -482,9 +384,6 @@ def remove_workspace(workspace: str):
         pass
 
 
-
-
-
 def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
     """
     Fetch recent logs from a Docker container.
@@ -493,6 +392,16 @@ def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
     try:
         if runtime_id.startswith("proc:"):
             return None
+        client = docker_from_env()
+        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
+        if isinstance(logs, (bytes, bytearray)):
+            try:
+                return logs.decode("utf-8", errors="replace")
+            except Exception:
+                return logs.decode("latin1", errors="replace")
+        return str(logs)
+    except Exception:
+        return None
         client = docker_from_env()
         # stream=False returns bytes
         logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
