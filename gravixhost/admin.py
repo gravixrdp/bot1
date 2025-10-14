@@ -28,7 +28,7 @@ async def admin_entry(message: Message):
     if not is_admin(message.from_user.id):
         return
     await message.answer(
-        "🛡️ Admin Panel",
+        bold("🛡️ Admin Panel"),
         reply_markup=admin_fixed_bar(),
         parse_mode=ParseMode.HTML,
     )
@@ -40,7 +40,7 @@ async def admin_users(cb: CallbackQuery):
         return
     db = _read_db()
     users = db["users"].values()
-    text = ["👥 Users"]
+    text = [bold("👥 Users")]
     for u in users:
         text.append(
             f"• {bold(u.get('name') or 'Unknown')} — ID {code(str(u['id']))} — "
@@ -66,7 +66,7 @@ async def admin_premium(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
     await cb.message.answer(
-        "💎 Premium Controls\nSend: " + code("premium <user_id> <days>") + " or " + code("unpremium <user_id>"),
+        bold("💎 Premium Controls") + "\nSend: " + code("premium <user_id> <days>") + " or " + code("unpremium <user_id>"),
         reply_markup=admin_fixed_bar(),
         parse_mode=ParseMode.HTML,
     )
@@ -98,14 +98,14 @@ async def premium_remove(message: Message):
 async def admin_apps(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
-    text = ["📦 Apps"]
+    text = [bold("📦 Apps")]
     db = _read_db()
     for b in db["bots"].values():
         text.append(
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append("\nAdmin commands:\n<code>stopbot &lt;id&gt;</code> <code>restartbot &lt;id&gt;</code> <code>removebot &lt;id&gt;</code>")
+    text.append("\n" + bold("Admin commands:") + "\n<code>stopbot &lt;id&gt;</code> <code>restartbot &lt;id&gt;</code> <code>removebot &lt;id&gt;</code>")
     await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
@@ -116,8 +116,8 @@ async def admin_logs(cb: CallbackQuery):
         return
     db = _read_db()
     logs = db["logs"][-30:]
-    text = ["🧾 Logs (last 30)", *[f"• {l['time']} — {l['event']}" for l in logs]]
-    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    text = [bold("🧾 Logs (last 30)"), *[f"• {l['time']} — {l['event']}" for l in logs]]
+    await cb.message.answerjoin(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
@@ -185,7 +185,7 @@ async def admin_settings(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
     await cb.message.answer(
-        "⚙️ Settings\nFree hosting time: 1 Hour\nRestart policy: Enabled\nUse commands to adjust.",
+        bold("⚙️ Settings") + "\nFree hosting time: 1 Hour\nRestart policy: Enabled\nUse commands to adjust.",
         reply_markup=admin_fixed_bar(),
         parse_mode=ParseMode.HTML,
     )
