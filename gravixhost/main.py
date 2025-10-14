@@ -449,34 +449,51 @@ async def user_remove_bot(message: Message):
 async def user_logs_bot(message: Message):
     bot_id = message.text.strip().split()[1]
     from .storage import get_bot, _read_db
+    from .services.hoster import get_runtime_logs
     b = get_bot(bot_id)
     if not b or b["owner_id"] != message.from_user.id:
         await message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
+
+    # Combine system logs and container logs
     db = _read_db()
-    logs = []
+    sys_logs = []
     for entry in reversed(db.get("logs", [])):
         ev = entry.get("event", "")
         if bot_id in ev:
-            logs.append(f"• {entry.get('time','')} — {ev}")
-        if len(logs) >= 50:
+            sys_logs.append(f"• {entry.get('time','')} — {ev}")
+        if len(sys_logs) >= 50:
             break
-    if not logs:
+
+    runtime_text = ""
+    rid = b.get("runtime_id")
+    if rid:
+        docker_logs = await asyncio.to_thread(get_runtime_logs, rid, 200)
+        if docker_logs:
+            runtime_text = docker_logs.strip()
+
+    if not sys_logs and not runtime_text:
         await message.answer(bold("No logs for this bot."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    # Chunked send
-    header = bold("🧾 Bot Logs")
-    chunk = []
-    current_len = 0
-    for line in logs:
-        if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
-            chunk = []
-            current_len = 0
-        chunk.append(line)
-        current_len += len(line) + 1
-    if chunk:
-        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+    # Send system logs (chunked)
+    if sys_logs:
+        header = bold("🧾 Bot Logs (system)")
+        chunk = []
+        current_len = 0
+        for line in sys_logs:
+            if current_len + len(line) + 1 > 3500:
+                await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+                chunk = []
+                current_len = 0
+            chunk.append(line)
+            current_len += len(line) + 1
+        if chunk:
+            await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+    # Send recent Docker logs
+    if runtime_text:
+        await message.answer(bold("🧾 Bot Logs (container)") + "\n" + pre(runtime_text[-3500:]), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")

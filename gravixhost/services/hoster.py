@@ -328,6 +328,25 @@ def restart_runtime(runtime_id: str) -> bool:
         return False
 
 
+def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
+    """
+    Return recent logs from a running or exited Docker container.
+    If the runtime_id refers to a local process (proc:), returns None.
+    """
+    try:
+        if runtime_id.startswith("proc:"):
+            return None
+        client = docker_from_env()
+        # docker-py returns bytes
+        raw = client.api.logs(container=runtime_id, tail=tail)
+        try:
+            return raw.decode("utf-8", errors="ignore")
+        except Exception:
+            return str(raw)
+    except Exception:
+        return None
+
+
 def remove_image(image_tag: str) -> bool:
     try:
         client = docker_from_env()

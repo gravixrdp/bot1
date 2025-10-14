@@ -293,6 +293,9 @@ async def admin_logsbot(message: Message):
     if not is_admin(message.from_user.id):
         return
     bot_id = message.text.strip().split()[1]
+    from .storage import get_bot
+    from .services.hoster import get_runtime_logs
+
     db = _read_db()
     logs = []
     for entry in reversed(db.get("logs", [])):
@@ -301,22 +304,38 @@ async def admin_logsbot(message: Message):
             logs.append(f"• {entry.get('time','')} — {ev}")
         if len(logs) >= 100:
             break
-    if not logs:
+
+    # Try to fetch container logs too
+    b = get_bot(bot_id)
+    runtime_text = ""
+    if b and b.get("runtime_id"):
+        rid = b["runtime_id"]
+        docker_logs = await asyncio.to_thread(get_runtime_logs, rid, 200)
+        if docker_logs:
+            runtime_text = docker_logs.strip()
+
+    if not logs and not runtime_text:
         await message.answer(bold("No logs for this bot."), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
         return
-    # Chunked send
-    header = bold("🧾 Bot Logs")
-    chunk = []
-    current_len = 0
-    for line in logs:
-        if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
-            chunk = []
-            current_len = 0
-        chunk.append(line)
-        current_len += len(line) + 1
-    if chunk:
-        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+
+    # Chunked send of system logs
+    if logs:
+        header = bold("🧾 Bot Logs (system)")
+        chunk = []
+        current_len = 0
+        for line in logs:
+            if current_len + len(line) + 1 > 3500:
+                await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+                chunk = []
+                current_len = 0
+            chunk.append(line)
+            current_len += len(line) + 1
+        if chunk:
+            await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+
+    # Send docker logs
+    if runtime_text:
+        await message.answer(bold("🧾 Bot Logs (container)") + "\n" + pre(runtime_text[-3500:]), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 # Keep callback-based handlers for backward compatibility (not used by the new UI)
