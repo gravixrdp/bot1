@@ -117,7 +117,7 @@ async def admin_logs(cb: CallbackQuery):
     db = _read_db()
     logs = db["logs"][-30:]
     text = [bold("🧾 Logs (last 30)"), *[f"• {l['time']} — {l['event']}" for l in logs]]
-    await cb.message.answerjoin(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
