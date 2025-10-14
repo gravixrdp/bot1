@@ -300,8 +300,7 @@ async def cb_manage(cb: CallbackQuery):
 async def cb_main_menu(cb: CallbackQuery):
     user = get_user(cb.from_user.id)
     await cb.message.answer("🏠 Main Menu", reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.MARKDOWN_V2)
-    await cb.answ_codeernew(</)
-()
+    await cb.answer()
 
 
 async def on_timeout_notify(bot: Bot, user_id: int, bot_id: str):
