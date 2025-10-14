@@ -16,6 +16,7 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
             [KeyboardButton(text="💬 Contact Admin")],
             [KeyboardButton(text="🆘 Support")],
             [KeyboardButton(text="👤 My Info")],
+            [KeyboardButton(text="⏳ Premium Time Left")],
             [KeyboardButton(text="🏠 Main Menu")],
         ]
     else:
@@ -26,6 +27,7 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
             [KeyboardButton(text="💰 Upgrade to Premium")],
             [KeyboardButton(text="🆘 Support")],
             [KeyboardButton(text="👤 My Info")],
+            [KeyboardButton(text="⏳ Premium Time Left")],
             [KeyboardButton(text="🏠 Main Menu")],
         ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)

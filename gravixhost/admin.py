@@ -137,8 +137,39 @@ async def premium_set(message: Message):
     parts = message.text.strip().split()
     user_id = int(parts[1])
     days = int(parts[2])
+
+    # Capture previous state
+    prev = get_user(user_id)
+    was_premium = bool(prev.get("is_premium"))
+
     set_premium(user_id, days)
-    await message.answer(f"✅ Premium set for {code(str(user_id))} for {days} days.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+
+    # Notify admin
+    await message.answer(
+        f"✅ Premium set for {code(str(user_id))} for {days} days.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=admin_menu(),
+    )
+
+    # Notify the target user
+    try:
+        from datetime import datetime
+        updated = get_user(user_id)
+        expiry_str = updated.get("premium_expiry")
+        expiry_text = human_dt(datetime.fromisoformat(expiry_str)) if expiry_str else "Not set"
+        await message.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "🎉 " + str(bold("Premium Activated")) + "\n"
+                f"• Duration: {bold(str(days))} days\n"
+                f"• Expires on: {bold(expiry_text)}\n"
+                "Enjoy unlimited uptime and premium features!"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        # Silent fail if bot can't message the user (e.g., user never started the bot)
+        pass
 
 
 @router.message(F.text.regexp(r"^unpremium\s+\d+$"))
