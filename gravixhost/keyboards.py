@@ -6,11 +6,27 @@ from aiogram.types import (
 )
 
 
+def _chunk_buttons(buttons, per_row: int = 2):
+    """
+    Arrange a flat list of KeyboardButton into rows with `per_row` items each.
+    Default is 2 per row as requested. This keeps the keyboard compact and readable.
+    """
+    rows = []
+    row = []
+    for b in buttons:
+        row.append(b)
+        if len(row) >= per_row:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows
+
+
 # Reply keyboard that stays above the input field and sends button text as a message
 def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
     if is_premium:
-        # Single horizontal row
-        rows = [[
+        buttons = [
             KeyboardButton(text="📦 Host My Bot"),
             KeyboardButton(text="⚙️ Manage My Bots"),
             KeyboardButton(text="📘 How it Works"),
@@ -19,10 +35,9 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
             KeyboardButton(text="👤 My Info"),
             KeyboardButton(text="⏳ Premium Time Left"),
             KeyboardButton(text="🏠 Main Menu"),
-        ]]
+        ]
     else:
-        # Single horizontal row
-        rows = [[
+        buttons = [
             KeyboardButton(text="📦 Host My Bot"),
             KeyboardButton(text="⚙️ Manage My Bots"),
             KeyboardButton(text="ℹ️ How it Works"),
@@ -31,14 +46,14 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
             KeyboardButton(text="👤 My Info"),
             KeyboardButton(text="⏳ Premium Time Left"),
             KeyboardButton(text="🏠 Main Menu"),
-        ]]
+        ]
+    rows = _chunk_buttons(buttons, per_row=2)
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 # User "Manage My Bots" persistent menu
 def user_manage_menu() -> ReplyKeyboardMarkup:
-    # Single horizontal row with all actions
-    rows = [[
+    buttons = [
         KeyboardButton(text="🔍 My Running Bots"),
         KeyboardButton(text="🛑 Stop My Bot"),
         KeyboardButton(text="♻️ Restart My Bot"),
@@ -46,14 +61,14 @@ def user_manage_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="📜 Bot Logs"),
         KeyboardButton(text="🧾 My Logs"),
         KeyboardButton(text="🏠 Main Menu"),
-    ]]
+    ]
+    rows = _chunk_buttons(buttons, per_row=2)
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 # Admin menus as persistent reply keyboards
 def admin_menu() -> ReplyKeyboardMarkup:
-    # Single horizontal row
-    rows = [[
+    buttons = [
         KeyboardButton(text="👥 Users"),
         KeyboardButton(text="💎 Premium"),
         KeyboardButton(text="📦 Apps"),
@@ -62,19 +77,20 @@ def admin_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="🗑️ Clear Admin Logs"),
         KeyboardButton(text="⚙️ Settings"),
         KeyboardButton(text="🏠 Main Menu"),
-    ]]
+    ]
+    rows = _chunk_buttons(buttons, per_row=2)
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 def contact_chat_menu() -> ReplyKeyboardMarkup:
     # Minimal chat UI for contacting admin
-    rows = [[KeyboardButton(text="⬅️ Back")]]
+    rows = _chunk_buttons([KeyboardButton(text="⬅️ Back")], per_row=2)
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 def admin_menu_apps() -> ReplyKeyboardMarkup:
-    # Single horizontal row including quick actions
-    rows = [[
+    # Include quick actions; arranged in rows of 2
+    buttons = [
         KeyboardButton(text="👥 Users"),
         KeyboardButton(text="💎 Premium"),
         KeyboardButton(text="📦 Apps"),
@@ -84,7 +100,8 @@ def admin_menu_apps() -> ReplyKeyboardMarkup:
         KeyboardButton(text="stopbot"),
         KeyboardButton(text="restartbot"),
         KeyboardButton(text="removebot"),
-    ]]
+    ]
+    rows = _chunk_buttons(buttons, per_row=2)
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
