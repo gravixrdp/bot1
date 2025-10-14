@@ -274,6 +274,14 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
         with open(req_auto_path, "w") as rf:
             rf.write("\n".join(requirements))
+        # Also ensure a requirements.txt exists for user code
+        req_txt_path = os.path.join(workspace, "requirements.txt")
+        if not os.path.exists(req_txt_path):
+            try:
+                with open(req_txt_path, "w") as rtf:
+                    rtf.write("\n".join(requirements))
+            except Exception:
+                pass
 
     dockerfile = os.path.join(workspace, "Dockerfile")
     with open(dockerfile, "w") as f:
