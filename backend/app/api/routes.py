@@ -8,7 +8,7 @@ from ..core.db import get_db
 from ..core.redis_conn import redis
 from ..core.config import settings
 from ..models import Admin, User, Container, Build, Ticket, Message, AuditLog
-from ..schemas import LoginRequest, AdminInfo, Stats, UserOut, ContainerOut, ActionRequest, BroadcastRequest, GrantRequest
+from ..schemas import LoginRequest, AdminInfo, Stats, UserOut, ContainerOut, ActionRequest, BroadcastRequest, GrantRequest, PasswordChangeRequest
 from ..security.auth import verify_password, create_session, set_session_cookies, get_current_admin, require_csrf
 
 router = APIRouter()
@@ -40,6 +40,23 @@ async def logout(request: Request, response: Response):
         await redis.delete(f"sess:{sid}")
     response.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
     response.delete_cookie(settings.CSRF_COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@router.post("/auth/password")
+async def change_password(
+    request: Request,
+    body: PasswordChangeRequest,
+    admin: Admin = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_csrf(request)
+    if not verify_password(body.current_password, admin.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    from ..security.auth import hash_password
+    admin.password_hash = hash_password(body.new_password)
+    db.add(AuditLog(actor=admin.username, action="change_password", target_type="admin", target_id=str(admin.id)))
+    await db.commit()
     return {"ok": True}
 
 
@@ -87,7 +104,8 @@ async def list_users(_: Admin = Depends(get_current_admin), db: AsyncSession = D
 
 
 @router.post("/users/{user_id}/grant")
-async def grant_premium(user_id: int, body: GrantRequest, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+async def grant_premium(request: Request, user_id: int, body: GrantRequest, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await require_csrf(request)
     from datetime import datetime, timedelta
 
     u = await db.get(User, user_id)
@@ -105,7 +123,8 @@ async def grant_premium(user_id: int, body: GrantRequest, admin: Admin = Depends
 
 
 @router.post("/users/{user_id}/revoke")
-async def revoke_premium(user_id: int, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+async def revoke_premium(request: Request, user_id: int, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await require_csrf(request)
     u = await db.get(User, user_id)
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
@@ -134,7 +153,8 @@ async def list_containers(_: Admin = Depends(get_current_admin), db: AsyncSessio
 
 
 @router.post("/containers/{cid}/action")
-async def container_action(cid: str, body: ActionRequest, admin: Admin = Depends(get_current_admin)):
+async def container_action(request: Request, cid: str, body: ActionRequest, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await require_csrf(request)
     if body.action not in {"start", "stop", "restart", "delete"}:
         raise HTTPException(status_code=400, detail="Invalid action")
     await redis.publish(
@@ -146,6 +166,8 @@ async def container_action(cid: str, body: ActionRequest, admin: Admin = Depends
             "actor": admin.username,
         },
     )
+    db.add(AuditLog(actor=admin.username, action=f"container_{body.action}", target_type="container", target_id=cid))
+    await db.commit()
     return {"ok": True}
 
 
@@ -173,11 +195,14 @@ async def list_builds(_: Admin = Depends(get_current_admin), db: AsyncSession = 
 
 
 @router.post("/broadcast")
-async def broadcast(body: BroadcastRequest, admin: Admin = Depends(get_current_admin)):
+async def broadcast(request: Request, body: BroadcastRequest, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await require_csrf(request)
     await redis.publish(
         settings.MASTER_COMMANDS_CHANNEL,
         {"type": "broadcast", "scope": body.scope, "message": body.message, "user_ids": body.user_ids or [], "actor": admin.username},
     )
+    db.add(AuditLog(actor=admin.username, action="broadcast", target_type="users", target_id="*"))
+    await db.commit()
     return {"ok": True}
 
 
@@ -189,11 +214,31 @@ async def tickets(_: Admin = Depends(get_current_admin), db: AsyncSession = Depe
 
 
 @router.post("/support/tickets/{tid}/reply")
-async def ticket_reply(tid: int, message: str, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+async def ticket_reply(request: Request, tid: int, message: str, admin: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    await require_csrf(request)
     t = await db.get(Ticket, tid)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
     db.add(Message(ticket_id=tid, sender="admin", content=message))
+    db.add(AuditLog(actor=admin.username, action="support_reply", target_type="ticket", target_id=str(tid)))
     await db.commit()
     await redis.publish(settings.MASTER_COMMANDS_CHANNEL, {"type": "support_reply", "ticket_id": tid, "message": message})
     return {"ok": True}
+
+
+@router.get("/audit")
+async def audit_logs(_: Admin = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(200))
+    rows = res.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "actor": a.actor,
+            "action": a.action,
+            "target_type": a.target_type,
+            "target_id": a.target_id,
+            "details": a.details,
+            "timestamp": a.timestamp,
+        }
+        for a in rows
+    ]

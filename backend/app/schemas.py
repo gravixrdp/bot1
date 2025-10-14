@@ -7,6 +7,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class AdminInfo(BaseModel):
     username: str
     is_owner: bool = True
