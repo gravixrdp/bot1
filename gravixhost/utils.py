@@ -7,14 +7,6 @@ import urllib.request
 import urllib.error
 
 
-def bold(text: str) -> str:
-    return f"<b>{escape(text)}</b>"
-
-
-def code(text: str) -> str:
-    return f"<code>{escape(text)}</code>"
-
-
 def escape(text: str) -> str:
     # Minimal escape for HTML
     return (
@@ -22,6 +14,32 @@ def escape(text: str) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def bold(text: str) -> str:
+    return f"<b>{escape(text)}</b>"
+
+
+def italic(text: str) -> str:
+    return f"<i>{escape(text)}</i>"
+
+
+def underline(text: str) -> str:
+    return f"<u>{escape(text)}</u>"
+
+
+def strike(text: str) -> str:
+    return f"<s>{escape(text)}</s>"
+
+
+def code(text: str) -> str:
+    # Inline monospace
+    return f"<code>{escape(text)}</code>"
+
+
+def pre(text: str) -> str:
+    # Block monospace
+    return f"<pre>{escape(text)}</pre>"
 
 
 def human_dt(dt: Optional[datetime]) -> str:

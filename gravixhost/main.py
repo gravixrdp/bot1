@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 
 from .config import MASTER_BOT_TOKEN, APP_NAME
 from .keyboards import main_menu, support_url_kb
-from .utils import bold, code, human_dt, is_valid_token
+from .utils import bold, code, human_dt, is_valid_token, italic, underline, strike, pre
 from .storage import (
     get_user,
     update_user,
@@ -112,6 +112,60 @@ async def cmd_host(message: Message, state: FSMContext):
     await _start_host_flow(message, state)
 
 
+@router.message(Command("bold"))
+async def cmd_bold(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: " + code("/bold Your text here"), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(bold(parts[1]), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("italic"))
+async def cmd_italic(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: " + code("/italic Your text here"), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(italic(parts[1]), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("underline"))
+async def cmd_underline(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: " + code("/underline Your text here"), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(underline(parts[1]), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("strike"))
+async def cmd_strike(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: " + code("/strike Your text here"), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(strike(parts[1]), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("mono"))
+async def cmd_mono(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: " + code("/mono Your text here"), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(code(parts[1]), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("pre"))
+async def cmd_pre(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Usage: " + code("/pre Your text here"), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(pre(parts[1]), parse_mode=ParseMode.HTML)
+
+
 # Map reply keyboard button texts to actions
 @router.message(F.text == "📦 Host My Bot")
 async def on_host_btn(message: Message, state: FSMContext):
@@ -176,6 +230,27 @@ async def on_contact_admin(message: Message):
         reply_markup=main_menu(True),
         parse_mode=ParseMode.HTML,
     )
+
+
+@router.message(F.text == "🖋️ Style Text")
+async def on_style_text(message: Message):
+    demo = (
+        "Text styling options (Telegram-supported):\n"
+        f"• Bold: {bold('Bold sample')}\n"
+        f"• Italic: {italic('Italic sample')}\n"
+        f"• Underline: {underline('Underline sample')}\n"
+        f"• Strikethrough: {strike('Strikethrough sample')}\n"
+        f"• Monospace (inline): {code('inline code')}\n"
+        f"• Monospace (block):\n{pre('line 1\\nline 2')}\n\n"
+        "Use commands:\n"
+        + code("/bold Your text here") + "\n"
+        + code("/italic Your text here") + "\n"
+        + code("/underline Your text here") + "\n"
+        + code("/strike Your text here") + "\n"
+        + code("/mono Your text here") + "  (inline monospace)\n"
+        + code("/pre Your text here") + "   (block monospace)"
+    )
+    await message.answer(demo, parse_mode=ParseMode.HTML)
 
 
 async def _start_host_flow(message: Message, state: FSMContext):
