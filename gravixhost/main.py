@@ -66,7 +66,7 @@ async def cmd_help(message: Message):
         "• Use '📦 Host My Bot' to upload your bot code.\n"
         "• Make sure your main file is named " + code("bot.py") + ".\n"
         "• After upload, send your bot token from " + bold("@BotFather") + ".\n"
-        "• Free plan runs for 1 hour.r unlimited uptime 💎.\n"
+        "• Free plan: 1 hour; Premium: unlimited uptime 💎.\n"
     )
     await message.answer(text, reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
 
@@ -104,7 +104,7 @@ async def cmd_upgrade(message: Message):
         "• Priority support\n\n"
         "Contact admin via the button (for premium users) or reply here with your request."
     )
-    await message.answer(text, reply_markupget_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
+    await message.answer(text, reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
 
 
 @router.message(Command("host"))
@@ -198,7 +198,7 @@ async def on_my_info_btn(message: Message):
 async def on_support(message: Message):
     await message.answer(
         bold("🆘 Support") + "\nSupport ke liye niche button par click karein:",
-        reply),
+        reply_markup=support_url_kb(),
         parse_mode=ParseMode.HTML,
     )
 
@@ -216,7 +216,7 @@ async def on_manage_bots(message: Message):
 @router.message(F.text == "🏠 Main Menu")
 async def on_main_menu(message: Message):
     user = get_user(message.from_user.id)
-    await message.answer(bold("🏠 Main Menu"), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.H_codeTMnewL</)
+    await message.answer(bold("🏠 Main Menu"), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
 
 
 
@@ -258,7 +258,7 @@ async def _start_host_flow(message: Message, state: FSMContext):
     await state.set_state(HostStates.waiting_file)
     await state.update_data(pending=PendingHost().__dict__)
     await message.answer(
-        f"{bold('🚀 Let’s get your bot online!')}\nPlease uploadile (like " + code("bot.py") + " or a .zip containing your bot code).",
+        f"{bold('🚀 Let’s get your bot online!')}\nPlease upload a file (like " + code("bot.py") + " or a .zip containing your bot code).",
         reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
         parse_mode=ParseMode.HTML,
     )
@@ -302,8 +302,7 @@ async def upload_error(message: Message):
         f"{bold('⚠️ File type not supported.')}\nPlease upload a .py file or .zip archive.",
         reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
         parse_mode=ParseMode.HTML,
- _code  new </)
-)
+    )
 
 
 @router.message(HostStates.waiting_token)
@@ -331,7 +330,7 @@ async def handle_token(message: Message, state: FSMContext):
         if pending.workspace:
             remove_workspace(pending.workspace)
         await state.clear()
-        re_code        return
+        return
 
     # Build and deploy
     await message.answer("🔧 Setting up your hosting environment...", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
@@ -366,7 +365,7 @@ async def cmd_stop(message: Message):
     active = get_active_bots(message.from_user.id)
     if not active:
         await message.answer(bold("ℹ️ No active hosted bots."), reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
-        re_codetunewr</n
+        return
 n
     from .services.hoster import stop_runtime
     stopped_any = False
@@ -380,7 +379,10 @@ n
         await message.answer(bold("🛑 Your hosted bot has been stopped."), reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
     else:
         await message.answer(
-            f"{bold('⚙️ Internal erroryour request.\nDon't worry — our system automatically handles this.\nPlease retry in a few minutes.", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
+            bold("⚙️ Internal error") + "\nThere was a problem handling your request. Don't worry — our system automatically handles this.\nPlease retry in a few minutes.",
+            reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
+            parse_mode=ParseMode.HTML,
+        )
 
 
 # Keep callback-based handlers for backward compatibility with any existing inline keyboards
