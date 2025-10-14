@@ -25,7 +25,7 @@ from .storage import (
     get_active_bots,
     get_user_bots,
 )
-from .services.hoster import save_upload, build_and_run, remove_workspace
+from .services.hoster_fixed import save_upload, build_and_run, remove_workspace
 from .services.scheduler import Scheduler
 from .admin import router as admin_router
 from .services.ai_assistant import suggest_fix
