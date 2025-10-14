@@ -313,12 +313,21 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("# Expose in env for libraries that read from environment\\n")
         f.write("os.environ['BOT_TOKEN'] = token\\n")
         f.write("os.environ['TELEGRAM_TOKEN'] = token\\n")
+        f.write("os.environ['TOKEN'] = token\\n")
+        f.write("os.environ['TELEGRAM_BOT_TOKEN'] = token\\n")
         f.write("# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly\\n")
-        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token}\\n")
+        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\\n")
         f.write("# Ensure current working directory is the app root\\n")
         f.write("os.chdir(os.path.dirname(__file__))\\n")
-        f.write("# Run the user's entry file in this process\\n")
-        f.write(f"runpy.run_path('{entry_file}', init_globals=init_globals)_code")
+        f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\\n")
+        f.write("try:\\n")
+        f.write("    runpy.run_path('" + entry_file + "', init_globals=init_globals)\\n")
+        f.write("except SystemExit:\\n")
+        f.write("    raise\\n")
+        f.write("except Exception:\\n")
+        f.write("    import traceback\\n")
+        f.write("    traceback.print_exc()\\n")
+        f.write("    sys.exit(1)\\n")
 
     # Shell runner kept for backward compatibility (not used by CMD anymore)
     runner_sh = os.path.join(workspace, "gravix_runner.sh")
@@ -385,7 +394,9 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
         log_event(f"Building runtime for {bot_id}")
         client.images.build(path=workspace, tag=image_tag, rm=True)
         # Run with resource limits
-        env = {"TELEGRAM_TOKEN": token}
+        env = {"TELEGRAM_TOKEN": token, "BOT_TOKEN": token, "TOKEN": token, "TELEGRAM_BOT_TOKEN": token}
+        # Load dynamic settings overr_codeidnewe</s
+GRAM_BOT_TOKEN": token}
         # Load dynamic settings overrides
         settings = get_settings()
         try:
