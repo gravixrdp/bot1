@@ -74,6 +74,21 @@ async def cmd_help(message: Message):
     )
     await message.answer(text, reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
 
+# Explicit commands to go back to main menu from anywhere
+@router.message(Command("back"))
+@router.message(Command("menu"))
+async def cmd_back_to_menu(message: Message, state: FSMContext):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    await message.answer(bold("🏠 Main Menu"), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+
+# Robust global Back handler that matches most variants, anywhere
+@router.message(F.text.regexp(r"(?i)^\s*(?:/)?\s*(?:⬅️\s*)?back\s*$"))
+async def any_back(message: Message, state: FSMContext):
+    await state.clear()
+    user = get_user(message.from_user.id)
+    await message.answer(bold("🏠 Main Menu"), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+
 
 @router.message(Command("myinfo"))
 async def cmd_myinfo(message: Message):
