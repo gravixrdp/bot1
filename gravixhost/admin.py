@@ -15,8 +15,11 @@ from .storage import (
     get_user_bots,
     update_user,
     add_admin_reply,
+    get_settings,
+    update_settings,
 )
 from .utils import bold, code, human_dt, pre, escape
+import asyncio
 
 
 router = Router(name="admin")
@@ -102,13 +105,13 @@ async def admin_inbox(message: Message):
 async def admin_reply(message: Message):
     """
     Admin can reply to a user from the inbox using:
-    repl <yuser_id <>your message>
+    reply <user_id> <your message>
     """
     if not is_admin(message.from_user.id):
         return
     parts = message.text.split(maxsplit=2)
-    if len(parts <) 3:
-        await message.answer("Usage: " + code("repl <yuser_id <>message>"), parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+    if len(parts) < 3:
+        await message.answer("Usage: " + code("reply <user_id> <message>"), parse_mode=ParseMode.HTML, reply_markup=admin_menu())
         return
     try:
         target_id = int(parts[1])
@@ -128,7 +131,7 @@ async def admin_reply(message: Message):
         await message.answer("❌ Failed to deliver reply (user may not have started the bot).", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
 
 
-@router.callbacks")
+@router.message(F.text == "📦 Apps")
 async def admin_apps_msg(message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -173,15 +176,109 @@ async def admin_clear_logs(message: Message):
     await message.answer("✅ Admin logs cleared.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
 
+# Settings commands
+@router.message(F.text.regexp(r"^setfree\s+\d+$"))
+async def admin_set_free_time(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.strip().split()
+    minutes = int(parts[1])
+    from .storage import update_settings
+    update_settings(free_duration_minutes=minutes)
+    await message.answer(f"✅ Free hosting time set to {bold(str(minutes))} minutes.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setrestart\s+(on|off)$"))
+async def admin_set_restart(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    mode = message.text.strip().split()[1].lower()
+    if mode not in {"on", "off"}:
+        await message.answer("Usage: " + code("setrestart <on|off>"), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+        return
+    from .storage import update_settings
+    update_settings(restart_policy=mode)
+    await message.answer(f"✅ Restart policy {bold('Enabled' if mode=='on' else 'Disabled')}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setcpu\s+[0-9]+(\.[0-9]+)?$"))
+async def admin_set_cpu(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    value = message.text.strip().split()[1]
+    try:
+        _ = float(value)
+    except Exception:
+        await message.answer("Usage: " + code("setcpu <fraction>"), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+        return
+    from .storage import update_settings
+    update_settings(cpu_limit=value)
+    await message.answer(f"✅ CPU limit set to {bold(value)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setmem\s+\S+$"))
+async def admin_set_mem(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    value = message.text.strip().split()[1]
+    from .storage import update_settings
+    update_settings(mem_limit=value)
+    await message.answer(f"✅ Memory limit set to {bold(value)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setnetwork\s+\S+$"))
+async def admin_set_network(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    value = message.text.strip().split()[1]
+    from .storage import update_settings
+    # 'off' clears network
+    update_settings(network=None if value.lower() == "off" else value)
+    await message.answer(f"✅ Network set to {bold('default' if value.lower()=='off' else value)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
 @router.message(F.text == "⚙️ Settings")
 async def admin_settings_msg(message: Message):
     if not is_admin(message.from_user.id):
         return
-    await message.answer(
-        bold("⚙️ Settings") + "\nFree hosting time: 1 Hour\nRestart policy: Enabled\nUse commands to adjust.",
-        reply_markup=admin_menu(),
-        parse_mode=ParseMode.HTML,
+    from .storage import get_settings
+    s = get_settings()
+    free_minutes = s.get("free_duration_minutes")
+    restart_on = s.get("restart_policy") == "on"
+    cpu = s.get("cpu_limit")
+    mem = s.get("mem_limit")
+    net = s.get("network") or "default"
+    text = (
+        bold("⚙️ Settings") + "\n"
+        + f"• Free hosting time: {bold(str(free_minutes))} minutes\n"
+        + f"• Restart policy: {bold('Enabled' if restart_on else 'Disabled')}\n"
+        + f"• CPU limit: {bold(str(cpu))}\n"
+        + f"• Memory limit: {bold(str(mem))}\n"
+        + f"• Network: {bold(str(net))}\n\n"
+        + "Use commands to adjust:\n"
+        + code("setfree <minutes>") + " — e.g., setfree 60\n"
+        + code("setrestart <on|off>") + " — e.g., setrestart on\n"
+        + code("setcpu <fraction>") + " — e.g., setcpu 0.5\n"
+        + code("setmem <limit>") + " — e.g., setmem 256m\n"
+        + code("setnetwork <name|off>") + " — e.g., setnetwork mynet or setnetwork off\n"
     )
+    await message.answer(text, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    mem = s.get("mem_limit", "256m")
+    net = s.get("network") or "default"
+    text = (
+        bold("⚙️ Settings") + "\n"
+        + f"• Free hosting time: {bold(str(free_mins))} min\n"
+        + f"• Restart policy: {bold(restart)}\n"
+        + f"• CPU limit: {bold(str(cpu))}\n"
+        + f"• Memory limit: {bold(str(mem))}\n"
+        + f"• Network: {bold(str(net))}\n\n"
+        + code("setfree <minutes>") + " — e.g., setfree 120\n"
+        + code("setrestart <on|off>") + " — e.g., setrestart off\n"
+        + code("setcpu <fraction>") + " — e.g., setcpu 0.75\n"
+        + code("setmem <limit>") + " — e.g., setmem 512m\n"
+        + code("setnetwork <name|off>") + " — e.g., setnetwork mynet or setnetwork off\n"
+    )
+    await message.answer(text, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")
@@ -512,9 +609,83 @@ async def admin_logs(cb: CallbackQuery):
 async def admin_settings(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
-    await cb.message.answer(
-        bold("⚙️ Settings") + "\nFree hosting time: 1 Hour\nRestart policy: Enabled\nUse commands to adjust.",
-        reply_markup=admin_fixed_bar(),
-        parse_mode=ParseMode.HTML,
+    s = get_settings()
+    free_mins = s.get("free_duration_minutes", 60)
+    restart = "Enabled" if str(s.get("restart_policy", "on")).lower() == "on" else "Disabled"
+    cpu = s.get("cpu_limit", "0.5")
+    mem = s.get("mem_limit", "256m")
+    net = s.get("network") or "default"
+    text = (
+        bold("⚙️ Settings") + "\n"
+        + f"• Free hosting time: {bold(str(free_mins))} min\n"
+        + f"• Restart policy: {bold(restart)}\n"
+        + f"• CPU limit: {bold(str(cpu))}\n"
+        + f"• Memory limit: {bold(str(mem))}\n"
+        + f"• Network: {bold(str(net))}\n\n"
+        + code("setfree <minutes>") + " — e.g., setfree 120\n"
+        + code("setrestart <on|off>") + " — e.g., setrestart off\n"
+        + code("setcpu <fraction>") + " — e.g., setcpu 0.75\n"
+        + code("setmem <limit>") + " — e.g., setmem 512m\n"
+        + code("setnetwork <name|off>") + " — e.g., setnetwork mynet or setnetwork off\n"
     )
+    await cb.message.answer(text, reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
+
+
+# Settings update handlers
+@router.message(F.text.regexp(r"^setfree\s+\d+$"))
+async def set_free_time(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        minutes = int(message.text.strip().split()[1])
+        update_settings(free_duration_minutes=max(1, minutes))
+        await message.answer(f"✅ Free hosting time set to {code(str(minutes))} minutes.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    except Exception:
+        await message.answer("❌ Invalid value. Usage: " + code("setfree <minutes>"), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setrestart\s+\S+$"))
+async def set_restart_policy(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    val = message.text.strip().split()[1].lower()
+    if val in {"on", "off"}:
+        update_settings(restart_policy=val)
+        await message.answer(f"✅ Restart policy set to {bold('Enabled' if val=='on' else 'Disabled')}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    else:
+        await message.answer("❌ Invalid value. Use: " + code("setrestart <on|off>"), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setcpu\s+[0-9]*\.?[0-9]+$"))
+async def set_cpu_limit(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        val = float(message.text.strip().split()[1])
+        update_settings(cpu_limit=str(val))
+        await message.answer(f"✅ CPU limit set to {code(str(val))}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    except Exception:
+        await message.answer("❌ Invalid value. Usage: " + code("setcpu <fraction>"), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setmem\s+\S+$"))
+async def set_mem_limit(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    val = message.text.strip().split()[1]
+    update_settings(mem_limit=val)
+    await message.answer(f"✅ Memory limit set to {code(val)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^setnetwork\s+\S+$"))
+async def set_network(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    val = message.text.strip().split()[1]
+    if val.lower() in {"off", "none", "default"}:
+        update_settings(network=None)
+        await message.answer("✅ Network set to default.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    else:
+        update_settings(network=val)
+        await message.answer(f"✅ Network set to {code(val)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)

@@ -3,14 +3,14 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
-from .config import DB_PATH, DATA_DIR, FREE_PLAN_DURATION
+from .config import DB_PATH, DATA_DIR, FREE_PLAN_DURATION, RUNTIME_CPU_LIMIT, RUNTIME_MEM_LIMIT, RUNTIME_NETWORK
 
 
 def _ensure_dirs():
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(DB_PATH):
         with open(DB_PATH, "w") as f:
-            json.dump({"users": {}, "bots": {}, "logs": [], "messages": []}, f)
+            json.dump({"users": {}, "bots": {}, "logs": [], "messages": [], "settings": {}}, f)
 
 
 _ensure_dirs()
@@ -24,6 +24,7 @@ def _read_db() -> Dict[str, Any]:
     db.setdefault("bots", {})
     db.setdefault("logs", [])
     db.setdefault("messages", [])
+    db.setdefault("settings", {})
     return db
 
 
@@ -269,4 +270,48 @@ def has_free_time_expired(bot_id: str) -> bool:
     if not started:
         return False
     started_dt = datetime.fromisoformat(started)
-    return datetime.utcnow() > started_dt + FREE_PLAN_DURATION
+    # Use settings override if present; default to FREE_PLAN_DURATION
+    settings = get_settings()
+    minutes = settings.get("free_duration_minutes")
+    try:
+        free_delta = timedelta(minutes=int(minutes)) if minutes is not None else FREE_PLAN_DURATION
+    except Exception:
+        free_delta = FREE_PLAN_DURATION
+    return datetime.utcnow() > started_dt + free_delta
+
+
+# Settings
+def get_settings() -> Dict[str, Any]:
+    """
+    Return current runtime settings. Fallbacks to environment-config defaults.
+    Stored keys:
+      - free_duration_minutes: int (default 60)
+      - restart_policy: "on" | "off" (default "on")
+      - cpu_limit: str/float (default from env RUNTIME_CPU_LIMIT)
+      - mem_limit: str (default from env RUNTIME_MEM_LIMIT)
+      - network: str | None (default from env RUNTIME_NETWORK)
+    """
+    db = _read_db()
+    s = db.get("settings", {}) or {}
+    # Defaults
+    if "free_duration_minutes" not in s:
+        s["free_duration_minutes"] = 60
+    if "restart_policy" not in s:
+        s["restart_policy"] = "on"
+    if "cpu_limit" not in s:
+        s["cpu_limit"] = RUNTIME_CPU_LIMIT
+    if "mem_limit" not in s:
+        s["mem_limit"] = RUNTIME_MEM_LIMIT
+    if "network" not in s:
+        s["network"] = RUNTIME_NETWORK
+    db["settings"] = s
+    _write_db(db)
+    return s
+
+
+def update_settings(**kwargs):
+    db = _read_db()
+    s = db.get("settings", {}) or {}
+    s.update({k: v for k, v in kwargs.items() if v is not None})
+    db["settings"] = s
+    _write_db(db)
