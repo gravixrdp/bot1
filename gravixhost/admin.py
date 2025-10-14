@@ -1,7 +1,9 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
 from .config import ADMIN_TELEGRAM_ID, ADMIN_TELEGRAM_IDS
 from .keyboards import admin_fixed_bar, main_menu, admin_menu, admin_menu_apps
@@ -12,11 +14,16 @@ from .storage import (
     remove_premium,
     get_user_bots,
     update_user,
+    add_admin_reply,
 )
 from .utils import bold, code, human_dt, pre, escape
 
 
 router = Router(name="admin")
+
+
+class AdminReplyStates(StatesGroup):
+    waiting_reply = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -81,16 +88,47 @@ async def admin_inbox(message: Message):
         await message.answer(bold("💬 Inbox") + "\nNo messages yet.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
         return
     # Build readable list
-    lines = [bold("💬 Inbox (last 50)")]
+    lines = [bold("💬 Inbox (last 50)") + "\n" + code("Use: reply <user_id> <your message>")]
     for m in msgs:
         from_user = get_user(int(m["user_id"]))
         name = from_user.get("name") or "Unknown"
-        lines.append(f"• {m['time']} — {bold(name)} ({code(str(m['user_id']))})")
+        prefix = "Admin →" if m.get("from_admin") else "User →"
+        lines.append(f"• {m['time']} — {bold(name)} ({code(str(m['user_id']))}) — {prefix}")
         lines.append(f"  {escape(m['text'])}")
     await message.answer("\n".join(lines), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
 
-@router.message(F.text == "📦 Apps")
+@router.message(F.text.regexp(r"^reply\s+\d+\s+.+$"))
+async def admin_reply(message: Message):
+    """
+    Admin can reply to a user from the inbox using:
+    repl <yuser_id <>your message>
+    """
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split(maxsplit=2)
+    if len(parts <) 3:
+        await message.answer("Usage: " + code("repl <yuser_id <>message>"), parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        return
+    try:
+        target_id = int(parts[1])
+    except Exception:
+        await message.answer("Invalid user_id.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        return
+    text = parts[2].strip()
+    if not text:
+        await message.answer("Message cannot be empty.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        return
+    # Send message to user and log it
+    try:
+        await message.bot.send_message(chat_id=target_id, text=text, parse_mode=ParseMode.HTML)
+        add_admin_reply(target_user_id=target_id, admin_id=message.from_user.id, text=text)
+        await message.answer("✅ Reply sent.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+    except Exception:
+        await message.answer("❌ Failed to deliver reply (user may not have started the bot).", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+
+
+@router.callbacks")
 async def admin_apps_msg(message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -293,6 +331,9 @@ async def admin_logsbot(message: Message):
     if not is_admin(message.from_user.id):
         return
     bot_id = message.text.strip().split()[1]
+    from .storage import get_bot
+    from .services.hoster import get_runtime_logs
+
     db = _read_db()
     logs = []
     for entry in reversed(db.get("logs", [])):
@@ -301,22 +342,38 @@ async def admin_logsbot(message: Message):
             logs.append(f"• {entry.get('time','')} — {ev}")
         if len(logs) >= 100:
             break
-    if not logs:
+
+    # Try to fetch container logs too
+    b = get_bot(bot_id)
+    runtime_text = ""
+    if b and b.get("runtime_id"):
+        rid = b["runtime_id"]
+        docker_logs = await asyncio.to_thread(get_runtime_logs, rid, 200)
+        if docker_logs:
+            runtime_text = docker_logs.strip()
+
+    if not logs and not runtime_text:
         await message.answer(bold("No logs for this bot."), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
         return
-    # Chunked send
-    header = bold("🧾 Bot Logs")
-    chunk = []
-    current_len = 0
-    for line in logs:
-        if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
-            chunk = []
-            current_len = 0
-        chunk.append(line)
-        current_len += len(line) + 1
-    if chunk:
-        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+
+    # Chunked send of system logs
+    if logs:
+        header = bold("🧾 Bot Logs (system)")
+        chunk = []
+        current_len = 0
+        for line in logs:
+            if current_len + len(line) + 1 > 3500:
+                await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+                chunk = []
+                current_len = 0
+            chunk.append(line)
+            current_len += len(line) + 1
+        if chunk:
+            await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+
+    # Send docker logs
+    if runtime_text:
+        await message.answer(bold("🧾 Bot Logs (container)") + "\n" + pre(runtime_text[-3500:]), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 # Keep callback-based handlers for backward compatibility (not used by the new UI)

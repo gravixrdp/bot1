@@ -99,6 +99,25 @@ def add_message(user_id: int, text: str):
             "user_id": str(user_id),
             "text": text,
             "time": datetime.utcnow().isoformat(),
+            "from_admin": False,
+        }
+    )
+    _write_db(db)
+
+
+def add_admin_reply(target_user_id: int, admin_id: int, text: str):
+    """
+    Store an admin reply to a user in the inbox log (for context/history).
+    """
+    db = _read_db()
+    db.setdefault("messages", [])
+    db["messages"].append(
+        {
+            "user_id": str(target_user_id),
+            "admin_id": str(admin_id),
+            "text": text,
+            "time": datetime.utcnow().isoformat(),
+            "from_admin": True,
         }
     )
     _write_db(db)
