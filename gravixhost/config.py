@@ -6,8 +6,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Master bot token and admin ID are expected as environment variables for security.
-MASTER_BOT_TOKEN = os.getenv("MASTER_BOT_TOKEN", "")
-ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+MASTER_BOT_TOKEN = os.getenv("MASTER_BOT_TOKEN", "").strip()
+
+
+def _parse_admin_ids(raw: str):
+    ids = set()
+    for part in (raw or "").replace(";", ",").split(","):
+        p = part.strip().strip("'\"")
+        if not p:
+            continue
+        try:
+            # Support negative IDs too
+            ids.add(int(p))
+        except Exception:
+            # Try to extract leading sign and digits
+            import re
+            m = re.match(r"^(-?\\d+)", p)
+            if m:
+                try:
+                    ids.add(int(m.group(1)))
+                except Exception:
+                    pass
+    return ids
+
+
+ADMIN_TELEGRAM_IDS = _parse_admin_ids(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+# Backward-compat single admin id
+ADMIN_TELEGRAM_ID = next(iter(ADMIN_TELEGRAM_IDS), 0)
 
 # Free plan hosting duration
 FREE_PLAN_DURATION = timedelta(hours=1)
