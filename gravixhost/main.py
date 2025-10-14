@@ -13,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from .config import MASTER_BOT_TOKEN, APP_NAME
-from .keyboards import main_menu, support_url_kb, user_manage_menu
+from .keyboards import main_menu, support_url_kb, user_manage_menu, bots_action_list
 from .utils import bold, code, human_dt, is_valid_token, italic, underline, strike, pre
 from .storage import (
     get_user,
@@ -297,10 +297,11 @@ async def help_remove_my_bot(message: Message):
     if not bots:
         await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    lines = [bold("🗑️ Remove My Bot"), "Copy the ID and send: " + code("remove <bot_id>"), ""]
-    for b in bots:
-        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
-    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    await message.answer(
+        bold("🗑️ Remove My Bot") + "\nTap a button to delete directly:",
+        reply_markup=bots_action_list(bots, "Delete", "user_remove"),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(F.text == "📜 Bot Logs")
@@ -309,10 +310,11 @@ async def help_logs_my_bot(message: Message):
     if not bots:
         await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    lines = [bold("📜 Bot Logs"), "Copy the ID and send: " + code("logs <bot_id>"), ""]
-    for b in bots:
-        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])}")
-    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    await message.answer(
+        bold("📜 Bot Logs") + "\nTap a bot to view logs:",
+        reply_markup=bots_action_list(bots, "Logs", "user_logs"),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(F.text == "🛑 Stop My Bot")
@@ -321,10 +323,11 @@ async def help_stop_my_bot(message: Message):
     if not bots:
         await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    lines = [bold("🛑 Stop My Bot"), "Copy the ID and send: " + code("stop <bot_id>"), ""]
-    for b in bots:
-        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
-    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    await message.answer(
+        bold("🛑 Stop My Bot") + "\nTap a bot to stop it:",
+        reply_markup=bots_action_list(bots, "Stop", "user_stop"),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(F.text == "♻️ Restart My Bot")
@@ -333,9 +336,11 @@ async def help_restart_my_bot(message: Message):
     if not bots:
         await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    lines = [bold("♻️ Restart My Bot"), "Copy the ID and send: " + code("restart <bot_id>"), ""]
-    for b in bots:
-        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    await message.answer(
+        bold("♻️ Restart My Bot") + "\nTap a bot to restart it:",
+        reply_markup=bots_action_list(bots, "Restart", "user_restart"),
+        parse_mode=ParseMode.HTML,
+ _code{bold(b['status'])}")
     await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
@@ -659,6 +664,101 @@ async def cb_manage(cb: CallbackQuery):
 async def cb_main_menu(cb: CallbackQuery):
     user = get_user(cb.from_user.id)
     await cb.message.answer("🏠 Main Menu", reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+# User inline actions: stop, restart, remove, logs
+@router.callback_query(F.data.startswith("user_stop:"))
+async def cb_user_stop(cb: CallbackQuery):
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot
+    from .services.hoster import stop_runtime
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != cb.from_user.id:
+        await cb.message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    rid = b.get("runtime_id")
+    if rid:
+        stop_runtime(rid)
+    mark_stopped(bot_id)
+    await cb.message.answer(f"🛑 Stopped {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("user_restart:"))
+async def cb_user_restart(cb: CallbackQuery):
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot
+    from .services.hoster import restart_runtime
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != cb.from_user.id:
+        await cb.message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    rid = b.get("runtime_id")
+    if rid and restart_runtime(rid):
+        await cb.message.answer(f"♻️ Restarted {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    else:
+        await cb.message.answer("Failed to restart.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("user_remove:"))
+async def cb_user_remove(cb: CallbackQuery):
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot, delete_bot
+    from .services.hoster import stop_runtime, remove_workspace, remove_image
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != cb.from_user.id:
+        await cb.message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    rid = b.get("runtime_id")
+    if rid:
+        stop_runtime(rid)
+    image_tag = f"gravixhost_{b['owner_id']}_{bot_id}".lower()
+    remove_image(image_tag)
+    if b.get("path"):
+        remove_workspace(b["path"])
+    delete_bot(bot_id)
+    await cb.message.answer(f"🗑️ Removed {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("user_logs:"))
+async def cb_user_logs(cb: CallbackQuery):
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot, _read_db
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != cb.from_user.id:
+        await cb.message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    db = _read_db()
+    logs = []
+    for entry in reversed(db.get("logs", [])):
+        ev = entry.get("event", "")
+        if bot_id in ev:
+            logs.append(f"• {entry.get('time','')} — {ev}")
+        if len(logs) >= 50:
+            break
+    if not logs:
+        await cb.message.answer(bold("No logs for this bot."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    header = bold("🧾 Bot Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await cb.message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await cb.message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
