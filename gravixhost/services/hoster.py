@@ -586,6 +586,7 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
             "COPY bot.py .\n"
             f"ENV TOKEN={token}\n"
             f"ENV BOT_TOKEN={token}\n"
+            f"ENV TELEGRAM_TOKEN={token}\n"
             f"ENV {token_var}={token}\n"
             'CMD ["python","-u","bot.py"]\n'
         )

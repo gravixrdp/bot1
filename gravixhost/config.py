@@ -7,6 +7,13 @@ load_dotenv()
 
 # Master bot token and admin ID are expected as environment variables for security.
 MASTER_BOT_TOKEN = os.getenv("MASTER_BOT_TOKEN", "").strip()
+# Normalize common mistakes (quotes/spaces/KEY=VALUE etc.)
+try:
+    from .utils import normalize_token
+    MASTER_BOT_TOKEN = normalize_token(MASTER_BOT_TOKEN) or ""
+except Exception:
+    # If utils not available at import time, keep raw
+    MASTER_BOT_TOKEN = MASTER_BOT_TOKEN
 
 
 def _parse_admin_ids(raw: str):
