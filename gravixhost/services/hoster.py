@@ -135,40 +135,68 @@ def _normalize_requirement(name: str) -> Optional[str]:
 
 
 def detect_requirements(workspace: str) -> List[str]:
-    reqs = set()
-    # If requirements.txt exists, use it
-    req_path = os.path.join(workspace, "requirements.txt")
-    if os.path.exists(req_path):
-        try:
-            with open(req_path, "r") as f:
-                for line in f:
-                    norm = _normalize_requirement(line)
-                    if norm:
-                        reqs.add(norm)
-        except Exception:
-            pass
+    """
+    Detect dependencies by parsing Python files with AST for import statements.
+    Optionally include filtered requirements from requirements.txt that match actual imports.
+    """
+    import ast
+    import re
 
-    # Parse .py files for imports
-    def parse_imports(py_path: str):
+    import_names = set()
+
+    def collect_imports(py_path: str):
         try:
             with open(py_path, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("import ") or line.startswith("from "):
-                        parts = line.replace("import ", " ").replace("from ", " ").split()
-                        if parts:
-                            mod = parts[0].split(".")[0]
-                            # Normalize and filter through blacklist
-                            norm = _normalize_requirement(mod)
-                            if norm:
-                                reqs.add(norm)
+                tree = ast.parse(f.read(), filename=py_path)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        base = (alias.name or "").split(".")[0]
+                        if base:
+                            import_names.add(base)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        base = node.module.split(".")[0]
+                        if base:
+                            import_names.add(base)
         except Exception:
+            # Ignore parse errors in user code
             pass
 
     for root, _, files in os.walk(workspace):
         for f in files:
             if f.endswith(".py"):
-                parse_imports(os.path.join(root, f))
+                collect_imports(os.path.join(root, f))
+
+    reqs = set()
+    # Map imports to PyPI names
+    for base in import_names:
+        norm = _normalize_requirement(base)
+        if norm:
+            reqs.add(norm)
+
+    # Filter requirements.txt lines to only include things related to detected imports
+    req_path = os.path.join(workspace, "requirements.txt")
+    if os.path.exists(req_path):
+        try:
+            with open(req_path, "r") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    # Quick sanity: skip ultra-short names like "a"
+                    if len(s) < 2 and "==" not in s:
+                        continue
+                    # Extract base name left side before any specifier
+                    base = re.split(r"[<>=!~ ]", s)[0].split(".")[0]
+                    # Only include if its base matches an import we saw (or explicit mapping)
+                    base_mapped = _PYPI_MAP.get(base, base)
+                    if base in import_names or (isinstance(base_mapped, str) and base_mapped in reqs) or s.lower().startswith("pytelegrambotapi"):  # allow explicit common packages
+                        norm = _normalize_requirement(s)
+                        if norm:
+                            reqs.add(norm)
+        except Exception:
+            pass
 
     return sorted(reqs)
 
@@ -183,20 +211,24 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("python " + entry_file + "\n")
     os.chmod(runner, 0o755)
 
+    # Write autodetected requirements file (preferred)
+    req_auto_path = None
+    if requirements:
+        req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
+        with open(req_auto_path, "w") as rf:
+            rf.write("\n".join(requirements))
+
     dockerfile = os.path.join(workspace, "Dockerfile")
     with open(dockerfile, "w") as f:
         f.write("FROM python:3.11-slim\n")
         f.write("WORKDIR /app\n")
         f.write("COPY . /app\n")
         f.write("RUN pip install --no-cache-dir --upgrade pip\n")
-        # Always try to install user-provided requirements, but don't fail the build if they contain invalid lines
-        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi\n")
-        if requirements:
-            # write normalized autodetected requirements
-            req_path = os.path.join(workspace, "requirements.autodetected.txt")
-            with open(req_path, "w") as rf:
-                rf.write("\n".join(requirements))
+        # Prefer installing autodetected requirements first (clean set)
+        if req_auto_path:
             f.write("RUN pip install -r requirements.autodetected.txt || true\n")
+        # Then try user requirements if present (but don't fail build)
+        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi\n")
         f.write("ENV PYTHONUNBUFFERED=1\n")
         f.write("CMD [\"/app/gravix_runner.sh\"]\n")
 
@@ -213,90 +245,50 @@ def _docker_available() -> bool:
 
 def _run_locally(workspace: str, entry: Optional[str], token: str) -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Fallback runner when Docker isn't available.
-    Creates a venv inside the workspace, installs requirements, and starts the bot.
-    Returns (ok, runtime_id, err). runtime_id is in form 'proc:<pid>'
+    Local runner is disabled by design. We only support Docker-based isolation.
     """
-    entry_file = entry or "bot.py"
-    venv_dir = os.path.join(workspace, ".venv")
-    python_bin = os.path.join(venv_dir, "bin", "python")
-    pip_bin = os.path.join(venv_dir, "bin", "pip")
-
-    try:
-        # Create virtual environment
-        if not os.path.exists(python_bin):
-            subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
-
-        # Install requirements if present (don't abort on errors)
-        req_file = os.path.join(workspace, "requirements.txt")
-        if os.path.exists(req_file):
-            try:
-                subprocess.check_call([pip_bin, "install", "-r", req_file])
-            except Exception as e:
-                log_event(f"Requirements installation failed: {e}. Continuing with autodetected packages.")
-
-        # Best-effort: install autodetected requirements
-        autodetected = detect_requirements(workspace)
-        if autodetected:
-            # Install packages individually so one bad entry doesn't block others
-            for pkg in autodetected:
-                try:
-                    subprocess.check_call([pip_bin, "install", pkg])
-                except Exception as e:
-                    log_event(f"Autodetected requirement '{pkg}' failed: {e}. Skipping.")
-
-        env = os.environ.copy()
-        env["TELEGRAM_TOKEN"] = token
-        # Start the process detached
-        proc = subprocess.Popen([python_bin, entry_file], cwd=workspace, env=env)
-        log_event(f"Local runtime started pid={proc.pid}")
-        return True, f"proc:{proc.pid}", None
-    except Exception as e:
-        return False, None, str(e)
+    return False, None, "docker_unavailable"
 
 
 def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
     image_tag = f"gravixhost_{user_id}_{bot_id}".lower()
-    # Try Docker path first
-    if _docker_available():
-        client = docker_from_env()
-        try:
-            requirements = detect_requirements(workspace)
-            write_runner_and_dockerfile(workspace, entry=entry, requirements=requirements)
-            # Build
-            log_event(f"Building runtime for {bot_id}")
-            client.images.build(path=workspace, tag=image_tag, rm=True)
-            # Run with resource limits
-            env = {"TELEGRAM_TOKEN": token}
-            host_cfg = client.api.create_host_config(
-                nano_cpus=int(float(RUNTIME_CPU_LIMIT) * 1e9),
-                mem_limit=RUNTIME_MEM_LIMIT,
-                auto_remove=True,
-                restart_policy={"Name": "unless-stopped"}
-            )
-            create_kwargs = {
-                "image": image_tag,
-                "name": image_tag,
-                "environment": env,
-                "host_config": host_cfg,
-            }
-            if RUNTIME_NETWORK:
-                create_kwargs["network"] = RUNTIME_NETWORK
-            container = client.api.create_container(**create_kwargs)
-            client.api.start(container=container.get("Id"))
-            runtime_id = container.get("Id")
-            log_event(f"Runtime started {runtime_id} for {bot_id}")
-            return True, runtime_id, None
-        except docker_errors.BuildError:
-            return False, None, "build_error"
-        except Exception as e:
-            # Fall back to local if the daemon becomes unavailable mid-way
-            log_event(f"Docker path failed: {e}. Falling back to local runner.")
-            return _run_locally(workspace, entry, token)
-    else:
-        # No Docker available
-        log_event("Docker not available. Using local runner.")
-        return _run_locally(workspace, entry, token)
+    # Enforce Docker-only
+    if not _docker_available():
+        log_event("Docker not available. Aborting deployment.")
+        return False, None, "docker_unavailable"
+    client = docker_from_env()
+    try:
+        requirements = detect_requirements(workspace)
+        write_runner_and_dockerfile(workspace, entry=entry, requirements=requirements)
+        # Build
+        log_event(f"Building runtime for {bot_id}")
+        client.images.build(path=workspace, tag=image_tag, rm=True)
+        # Run with resource limits
+        env = {"TELEGRAM_TOKEN": token}
+        host_cfg = client.api.create_host_config(
+            nano_cpus=int(float(RUNTIME_CPU_LIMIT) * 1e9),
+            mem_limit=RUNTIME_MEM_LIMIT,
+            auto_remove=True,
+            restart_policy={"Name": "unless-stopped"}
+        )
+        create_kwargs = {
+            "image": image_tag,
+            "name": image_tag,
+            "environment": env,
+            "host_config": host_cfg,
+        }
+        if RUNTIME_NETWORK:
+            create_kwargs["network"] = RUNTIME_NETWORK
+        container = client.api.create_container(**create_kwargs)
+        client.api.start(container=container.get("Id"))
+        runtime_id = container.get("Id")
+        log_event(f"Runtime started {runtime_id} for {bot_id}")
+        return True, runtime_id, None
+    except docker_errors.BuildError:
+        return False, None, "build_error"
+    except Exception as e:
+        log_event(f"Docker path failed: {e}.")
+        return False, None, str(e)
 
 
 def stop_runtime(runtime_id: str) -> bool:
