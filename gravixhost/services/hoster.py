@@ -590,6 +590,160 @@ init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}
 # Ensure current working directory is the app root
 os.chdir(os.path.dirname(__file__))
 
+# Monkey-patch telebot.TeleBot to fall back to env token when given token is invalid
+def _patch_telebot():
+    try:
+        import telebot
+        _orig = telebot.TeleBot
+        import re as _re
+        class _PatchedTeleBot(telebot.TeleBot):
+            def __init__(self, tok, *args, **kwargs):
+                t = tok or ''
+                if ':' not in t or not _re.match(r'^\\d+:[A-Za-z0-9_-]+
+        with open(os.path.join(temp_dir, "gravix_runner.py"), "w", encoding="utf-8") as f:
+            f.write(runner_code)
+
+        # Base image selection based on framework
+        base_img = AIOGRAM_V2_IMAGE if framework == "aiogram_v2" else DEFAULT_BASE_IMAGE
+        dockerfile = (
+            f"FROM {base_img}\n"
+            "WORKDIR /app\n"
+            "COPY requirements.txt .\n"
+            "RUN pip install --no-cache-dir -r requirements.txt\n"
+            "COPY bot.py .\n"
+            "COPY gravix_runner.py .\n"
+            # Provide token via env (runner injects into globals)
+            f"ENV TELEGRAM_TOKEN={token}\n"
+            # Also set common variants for user code that reads env
+            f"ENV TOKEN={token}\n"
+            f"ENV BOT_TOKEN={token}\n"
+            f"ENV {token_var}={token}\n"
+            'CMD ["python","/app/gravix_runner.py"]\n'
+        )
+        with open(os.path.join(temp_dir, "Dockerfile"), "w", encoding="utf-8") as f:
+            f.write(dockerfile)
+
+        image_tag = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
+        container_name = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
+
+        # Build image
+        log_event(f"Building image {image_tag} for {bot_id}")
+        client.images.build(path=temp_dir, tag=image_tag, rm=True, timeout=BUILD_TIMEOUT_SECS)
+
+        # Ensure network exists or use default bridge
+        network = RUNTIME_NETWORK
+        if network:
+            try:
+                nets = client.networks.list(names=[network])
+                if not nets:
+                    client.networks.create(name=network)
+                    log_event(f"Created missing Docker network: {network}")
+            except Exception:
+                log_event(f"Could not verify/create network '{network}', proceeding with defaults.")
+                network = None
+
+        # Run container with simple resource limits (same-to-same style)
+        container = client.containers.run(
+            image_tag,
+            name=container_name,
+            detach=True,
+            cpu_quota=DEFAULT_CPU_QUOTA,
+            mem_limit=DEFAULT_MEM_LIMIT,
+            pids_limit=DEFAULT_PIDS_LIMIT,
+            network=network if network else None,
+            restart_policy={"Name": "unless-stopped"},
+        )
+
+        runtime_id = container.id
+        log_event(f"Runtime started {runtime_id} for {bot_id} (framework={framework})")
+        return True, runtime_id, None
+    except docker_errors.BuildError:
+        return False, None, "build_error"
+    except Exception as e:
+        log_event(f"Build/run failed for {bot_id}: {e}")
+        return False, None, str(e)
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def stop_runtime(runtime_id: str) -> bool:
+    try:
+        if runtime_id.startswith("proc:"):
+            pid = int(runtime_id.split(":", 1)[1])
+            os.kill(pid, signal.SIGTERM)
+            return True
+        # Docker container id
+        client = docker_from_env()
+        try:
+            client.api.stop(runtime_id, timeout=10)
+        except Exception:
+            pass
+        try:
+            client.api.remove_container(runtime_id, force=True)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def restart_runtime(runtime_id: str) -> bool:
+    try:
+        if runtime_id.startswith("proc:"):
+            # Not supported for local process
+            return False
+        client = docker_from_env()
+        client.api.restart(runtime_id)
+        return True
+    except Exception:
+        return False
+
+
+def remove_image(image_tag: str) -> bool:
+    try:
+        client = docker_from_env()
+        client.images.remove(image=image_tag, force=True)
+        return True
+    except Exception:
+        return False
+
+
+def remove_workspace(workspace: str):
+    try:
+        shutil.rmtree(workspace, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
+    """
+    Fetch recent logs from a Docker container.
+    Returns a string or None if not available.
+    """
+    try:
+        if runtime_id.startswith("proc:"):
+            return None
+        client = docker_from_env()
+        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
+        if isinstance(logs, (bytes, bytearray)):
+            try:
+                return logs.decode("utf-8", errors="replace")
+            except Exception:
+                return logs.decode("latin1", errors="replace")
+        return str(logs)
+    except Exception:
+        return None, t):
+                    env_t = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or os.getenv('TOKEN') or ''
+                    if env_t:
+                        t = env_t
+                super().__init__(t, *args, **kwargs)
+        telebot.TeleBot = _PatchedTeleBot
+    except Exception:
+        pass
+
+_patch_telebot()
+
 # Heartbeat thread to confirm liveness in logs
 def _heartbeat():
     while True:
