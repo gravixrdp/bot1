@@ -318,7 +318,7 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("# Ensure current working directory is the app root\\n")
         f.write("os.chdir(os.path.dirname(__file__))\\n")
         f.write("# Run the user's entry file in this process\\n")
-        f.write(f\"runpy.run_path('{entry_file}', init_globals=init_globals)\\n\")
+        f.write(f"runpy.run_path('{entry_file}', init_globals=init_globals)\n")
 
     # Shell runner kept for backward compatibility (not used by CMD anymore)
     runner_sh = os.path.join(workspace, "gravix_runner.sh")
