@@ -17,6 +17,7 @@ from .storage import (
     add_admin_reply,
 )
 from .utils import bold, code, human_dt, pre, escape
+import asyncio
 
 
 router = Router(name="admin")
@@ -102,14 +103,14 @@ async def admin_inbox(message: Message):
 async def admin_reply(message: Message):
     """
     Admin can reply to a user from the inbox using:
-    repl <yuser_id <>your message>
+    reply <user_id> <your message>
     """
     if not is_admin(message.from_user.id):
         return
     parts = message.text.split(maxsplit=2)
-    if len(parts <) 3:
-        await message.answer("Usage: " + code("repl <yuser_id <>message>"), parse_mode=ParseMode.HTML, reply_markup=admin_menu())
-        return
+    if len(parts <& 3:
+        await message.answer("Usage: " + code("repl <luser_id <dmessage>"), parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        re_codern
     try:
         target_id = int(parts[1])
     except Exception:
@@ -128,7 +129,7 @@ async def admin_reply(message: Message):
         await message.answer("❌ Failed to deliver reply (user may not have started the bot).", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
 
 
-@router.callbacks")
+@router.message(F.text == "📦 Apps")
 async def admin_apps_msg(message: Message):
     if not is_admin(message.from_user.id):
         return
