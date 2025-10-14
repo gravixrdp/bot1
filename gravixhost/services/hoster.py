@@ -53,22 +53,22 @@ _BLACKLIST = {
     "base64", "threading", "multiprocessing", "urllib", "http", "email", "sqlite3",
     "csv", "statistics", "enum", "types", "contextlib", "tempfile", "zipfile",
     "tarfile", "shutil", "glob", "fnmatch", "importlib", "inspect", "traceback",
-    "argparse", "getopt", "site", "builtins", "io", "pickle", "socket", "select",
-    "ssl", "struct", "json", "re", "math", "decimal", "fractions", "numbers",
+    "argparse", "getopt", "site", "io", "pickle", "socket", "select",
+    "ssl", "struct", "decimal", "fractions", "numbers",
     "abc", "array", "atexit", "binascii", "bisect", "bz2", "calendar", "cgi",
     "codecs", "colorsys", "compileall", "concurrent", "ctypes", "difflib",
-    "distutils", "doctest", "enum", "errno", "faulthandler", "filecmp", "fileinput",
-    "gc", "getopt", "getpass", "gettext", "gzip", "heapq", "hmac", "html", "html.parser",
+    "distutils", "doctest", "errno", "faulthandler", "filecmp", "fileinput",
+    "gc", "getpass", "gettext", "gzip", "heapq", "html", "html.parser",
     "http.client", "http.server", "imaplib", "ipaddress", "keyword", "linecache",
-    "locale", "logging", "lzma", "mailbox", "mailcap", "marshal", "mimetypes",
-    "mmap", "msvcrt", "netrc", "nis", "nntplib", "ntpath", "operator", "optparse",
+    "locale", "lzma", "mailbox", "mailcap", "marshal", "mimetypes",
+    "mmap", "netrc", "nis", "nntplib", "ntpath", "operator", "optparse",
     "os.path", "plistlib", "platform", "poplib", "posix", "pprint", "pty", "pwd",
     "py_compile", "queue", "quopri", "reprlib", "resource", "sched", "secrets",
-    "selectors", "shelve", "shlex", "signal", "site", "smtpd", "smtplib", "sndhdr",
-    "socketserver", "sqlite3", "ssl", "stat", "statistics", "string", "stringprep",
-    "sunau", "symtable", "sysconfig", "tabnanny", "telnetlib", "tempfile", "termios",
-    "textwrap", "threading", "timeit", "tkinter", "token", "tokenize", "trace",
-    "tracemalloc", "turtle", "types", "typing", "unicodedata", "unittest", "urllib",
+    "selectors", "shelve", "shlex", "smtpd", "smtplib", "sndhdr",
+    "socketserver", "stat", "string", "stringprep",
+    "sunau", "symtable", "sysconfig", "tabnanny", "telnetlib", "termios",
+    "textwrap", "timeit", "tkinter", "token", "tokenize", "trace",
+    "tracemalloc", "turtle", "unicodedata", "unittest", "urllib",
     "uuid", "venv", "warnings", "wave", "weakref", "webbrowser", "xml", "xmlrpc",
     "zipapp", "zipfile", "zoneinfo",
     # Python 2-only names that should not be pip-installed
@@ -142,8 +142,6 @@ def _normalize_requirement(name: str) -> Optional[str]:
     if mapped is None:
         return None
     # Final guard: basic sanity check to avoid clearly invalid package names
-    import re
-    # Allow mixed-case names (e.g., pyTelegramBotAPI). PyPI is case-insensitive.
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$", mapped):
         return None
     return mapped
@@ -256,7 +254,7 @@ def detect_requirements(workspace: str) -> List[str]:
                         or (isinstance(base_mapped, str) and base_mapped in reqs)
                         or s.lower().startswith("pytelegrambotapi")
                         or s.lower().startswith("python-telegram-bot")
-                    ):  # allow explicit common packages
+                    ):
                         norm = _normalize_requirement(s)
                         if norm:
                             reqs.add(norm)
@@ -274,7 +272,14 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
     runner_py = os.path.join(workspace, "gravix_runner.py")
     runner_code = f"""import os, runpy, sys, subprocess, threading, time, re
 
-token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''
+def _get_env_token():
+    t = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or os.getenv('TOKEN') or ''
+    return str(t).strip().strip("'\\\"").strip()
+
+def _is_valid_token(t: str) -> bool:
+    return bool(re.match(r'^\\d+:[A-Za-z0-9_-]+$', str(t)))
+
+token = _get_env_token()
 # Expose in env for libraries that read from environment
 os.environ['BOT_TOKEN'] = token
 os.environ['TELEGRAM_TOKEN'] = token
@@ -389,128 +394,6 @@ except Exception:
         else:
             # Use the Python runner to ensure token injection works for simple scripts
             f.write('CMD ["python", "/app/gravix_runner.py"]\n')
-    # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
-    entry_file = entry or "bot.py"
-
-    # Python runner: injects token into globals so common patterns like BOT_TOKEN/TOKEN work
-    runner_py = os.path.join(workspace, "gravix_runner.py")
-    runner_code = f"""import os, runpy, sys, subprocess, threading, time, re
-
-token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''
-# Expose in env for libraries that read from environment
-os.environ['BOT_TOKEN'] = token
-os.environ['TELEGRAM_TOKEN'] = token
-os.environ['TOKEN'] = token
-os.environ['TELEGRAM_BOT_TOKEN'] = token
-# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly
-init_globals = {{'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}}
-# Ensure current working directory is the app root
-os.chdir(os.path.dirname(__file__))
-
-# Heartbeat thread to confirm liveness in logs
-def _heartbeat():
-    while True:
-        try:
-            print('gravix_runner: heartbeat alive')
-        except Exception:
-            pass
-        time.sleep(30)
-threading.Thread(target=_heartbeat, daemon=True).start()
-
-# Run the user's entry file in this process
-print('gravix_runner: entry={entry_file} token_len=%d' % (len(token)))
-def _try_run():
-    runpy.run_path('{entry_file}', init_globals=init_globals)
-
-try:
-    _try_run()
-except ModuleNotFoundError as e:
-    missing = getattr(e, 'name', None)
-    if not missing and 'No module named' in str(e):
-        m = re.search(r"No module named ['\\\"]([^'\\\"]+)['\\\"]", str(e))
-        if m:
-            missing = m.group(1)
-    _MAP = {{
-        'telebot': 'pyTelegramBotAPI',
-        'telegram': 'python-telegram-bot',
-        'PIL': 'pillow',
-        'cv2': 'opencv-python',
-        'bs4': 'beautifulsoup4',
-        'yaml': 'pyyaml',
-        'Crypto': 'pycryptodome',
-        'OpenSSL': 'pyOpenSSL',
-    }}
-    pkg = _MAP.get(missing)
-    if pkg:
-        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
-            _try_run()
-        except Exception:
-            import traceback; traceback.print_exc(); sys.exit(1)
-    else:
-        raise
-except SystemExit:
-    raise
-except Exception:
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-"""
-    with open(runner_py, "w") as f:
-        f.write(runner_code)
-
-    # Shell runner (not used by CMD anymore; kept for compatibility)
-    runner_sh = os.path.join(workspace, "gravix_runner.sh")
-    with open(runner_sh, "w") as f:
-        f.write("#!/usr/bin/env bash\\n")
-        f.write("set -e\\n")
-        f.write('export BOT_TOKEN="${TELEGRAM_TOKEN}"\\n')
-        f.write("python gravix_runner.py\\n")
-    os.chmod(runner_sh, 0o755)
-
-    # Write autodetected requirements file (preferred)
-    req_auto_path = None
-    if requirements:
-        req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
-        with open(req_auto_path, "w") as rf:
-            rf.write("\\n".join(requirements))
-        # Also ensure a requirements.txt exists for user code
-        req_txt_path = os.path.join(workspace, "requirements.txt")
-        if not os.path.exists(req_txt_path):
-            try:
-                with open(req_txt_path, "w") as rtf:
-                    rtf.write("\\n".join(requirements))
-            except Exception:
-                pass
-
-    # Decide run mode from settings
-    try:
-        settings = get_settings()
-        run_mode = str(settings.get("run_mode", "runner")).lower()
-    except Exception:
-        run_mode = "runner"
-
-    dockerfile = os.path.join(workspace, "Dockerfile")
-    with open(dockerfile, "w") as f:
-        f.write("FROM python:3.11-slim\\n")
-        f.write("WORKDIR /app\\n")
-        f.write("COPY . /app\\n")
-        # Basic system deps that frequently help builds (kept minimal)
-        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\\n")
-        f.write("RUN pip install --no-cache-dir --upgrade pip\\n")
-        # Prefer installing autodetected requirements first (clean set)
-        if req_auto_path:
-            f.write("RUN pip install -r requirements.autodetected.txt\\n")
-        # Then try user requirements if present
-        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\\n")
-        f.write("ENV PYTHONUNBUFFERED=1\\n")
-        if run_mode == "direct":
-            # Directly run user's entry, token is available via env (BOT_TOKEN/TOKEN/TELEGRAM_TOKEN)
-            f.write(f'CMD ["python", "-u", "/app/{entry_file}"]\\n')
-        else:
-            # Use the Python runner to ensure token injection works for simple scripts
-            f.write('CMD ["python", "/app/gravix_runner.py"]\\n')
 
 
 def _docker_available() -> bool:
@@ -531,9 +414,11 @@ def _run_locally(workspace: str, entry: Optional[str], token: str) -> Tuple[bool
 
 def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Replace previous multi-file workspace build with single-file, temp-dir based flow
-    similar to the provided method: detect framework, guess minimal requirements,
-    write bot.py and Dockerfile into a temp dir, build, and run.
+    Single-file, temp-dir based flow:
+    - detect framework
+    - guess minimal requirements
+    - write bot.py and Dockerfile into a temp dir
+    - build, and run
     """
     if not _docker_available():
         log_event("Docker not available. Aborting deployment.")
@@ -580,224 +465,11 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
         runner_code = """import os, runpy, sys, subprocess, threading, time, re
 
 def _get_env_token():
-    # Prefer explicit TELEGRAM_TOKEN, fallback to BOT_TOKEN/TOKEN
     t = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or os.getenv('TOKEN') or ''
-    # Strip surrounding quotes/spaces if any
-    t = str(t).strip().strip("'\\\"").strip()
-    return t
+    return str(t).strip().strip("'\\\"").strip()
 
-def _is_valid_token(t):
-    return bool(re.match(r'^\\d+:[A-Za-z0-9_-]+
-    Fetch recent logs from a Docker container.
-    Returns a string or None if not available.
-    """
-    try:
-        if runtime_id.startswith("proc:"):
-            return None
-        client = docker_from_env()
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None, t):
-                    env_t = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or os.getenv('TOKEN') or ''
-                    if env_t:
-                        t = env_t
-                super().__init__(t, *args, **kwargs)
-        telebot.TeleBot = _PatchedTeleBot
-    except Exception:
-        pass
-
-_patch_telebot()
-
-# Heartbeat thread to confirm liveness in logs
-def _heartbeat():
-    while True:
-        try:
-            print('gravix_runner: heartbeat alive')
-        except Exception:
-            pass
-        time.sleep(30)
-threading.Thread(target=_heartbeat, daemon=True).start()
-
-# Run the user's entry file in this process
-print('gravix_runner: entry=bot.py token_len=%d' % (len(token)))
-def _try_run():
-    runpy.run_path('bot.py', init_globals=init_globals)
-
-try:
-    _try_run()
-except ModuleNotFoundError as e:
-    missing = getattr(e, 'name', None)
-    if not missing and 'No module named' in str(e):
-        m = re.search(r"No module named ['\\\"]([^'\\\"]+)['\\\"]", str(e))
-        if m:
-            missing = m.group(1)
-    _MAP = {
-        'telebot': 'pyTelegramBotAPI',
-        'telegram': 'python-telegram-bot',
-        'PIL': 'pillow',
-        'cv2': 'opencv-python',
-        'bs4': 'beautifulsoup4',
-        'yaml': 'pyyaml',
-        'Crypto': 'pycryptodome',
-        'OpenSSL': 'pyOpenSSL',
-    }
-    pkg = _MAP.get(missing)
-    if pkg:
-        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
-            _try_run()
-        except Exception:
-            import traceback; traceback.print_exc(); sys.exit(1)
-    else:
-        raise
-except SystemExit:
-    raise
-except Exception:
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-"""
-        with open(os.path.join(temp_dir, "gravix_runner.py"), "w", encoding="utf-8") as f:
-            f.write(runner_code)
-
-        # Base image selection based on framework
-        base_img = AIOGRAM_V2_IMAGE if framework == "aiogram_v2" else DEFAULT_BASE_IMAGE
-        dockerfile = (
-            f"FROM {base_img}\n"
-            "WORKDIR /app\n"
-            "COPY requirements.txt .\n"
-            "RUN pip install --no-cache-dir -r requirements.txt\n"
-            "COPY bot.py .\n"
-            "COPY gravix_runner.py .\n"
-            # Provide token via env (runner injects into globals)
-            f"ENV TELEGRAM_TOKEN={token}\n"
-            # Also set common variants for user code that reads env
-            f"ENV TOKEN={token}\n"
-            f"ENV BOT_TOKEN={token}\n"
-            f"ENV {token_var}={token}\n"
-            'CMD ["python","/app/gravix_runner.py"]\n'
-        )
-        with open(os.path.join(temp_dir, "Dockerfile"), "w", encoding="utf-8") as f:
-            f.write(dockerfile)
-
-        image_tag = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
-        container_name = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
-
-        # Build image
-        log_event(f"Building image {image_tag} for {bot_id}")
-        client.images.build(path=temp_dir, tag=image_tag, rm=True, timeout=BUILD_TIMEOUT_SECS)
-
-        # Ensure network exists or use default bridge
-        network = RUNTIME_NETWORK
-        if network:
-            try:
-                nets = client.networks.list(names=[network])
-                if not nets:
-                    client.networks.create(name=network)
-                    log_event(f"Created missing Docker network: {network}")
-            except Exception:
-                log_event(f"Could not verify/create network '{network}', proceeding with defaults.")
-                network = None
-
-        # Run container with simple resource limits (same-to-same style)
-        container = client.containers.run(
-            image_tag,
-            name=container_name,
-            detach=True,
-            cpu_quota=DEFAULT_CPU_QUOTA,
-            mem_limit=DEFAULT_MEM_LIMIT,
-            pids_limit=DEFAULT_PIDS_LIMIT,
-            network=network if network else None,
-            restart_policy={"Name": "unless-stopped"},
-        )
-
-        runtime_id = container.id
-        log_event(f"Runtime started {runtime_id} for {bot_id} (framework={framework})")
-        return True, runtime_id, None
-    except docker_errors.BuildError:
-        return False, None, "build_error"
-    except Exception as e:
-        log_event(f"Build/run failed for {bot_id}: {e}")
-        return False, None, str(e)
-    finally:
-        if temp_dir:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def stop_runtime(runtime_id: str) -> bool:
-    try:
-        if runtime_id.startswith("proc:"):
-            pid = int(runtime_id.split(":", 1)[1])
-            os.kill(pid, signal.SIGTERM)
-            return True
-        # Docker container id
-        client = docker_from_env()
-        try:
-            client.api.stop(runtime_id, timeout=10)
-        except Exception:
-            pass
-        try:
-            client.api.remove_container(runtime_id, force=True)
-        except Exception:
-            pass
-        return True
-    except Exception:
-        return False
-
-
-def restart_runtime(runtime_id: str) -> bool:
-    try:
-        if runtime_id.startswith("proc:"):
-            # Not supported for local process
-            return False
-        client = docker_from_env()
-        client.api.restart(runtime_id)
-        return True
-    except Exception:
-        return False
-
-
-def remove_image(image_tag: str) -> bool:
-    try:
-        client = docker_from_env()
-        client.images.remove(image=image_tag, force=True)
-        return True
-    except Exception:
-        return False
-
-
-def remove_workspace(workspace: str):
-    try:
-        shutil.rmtree(workspace, ignore_errors=True)
-    except Exception:
-        pass
-
-
-def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
-    """
-    Fetch recent logs from a Docker container.
-    Returns a string or None if not available.
-    """
-    try:
-        if runtime_id.startswith("proc:"):
-            return None
-        client = docker_from_env()
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None, (t or '').strip()))
+def _is_valid_token(t: str) -> bool:
+    return bool(re.match(r'^\\d+:[A-Za-z0-9_-]+$', str(t)))
 
 token = _get_env_token()
 # Expose in env for libraries that read from environment
@@ -809,383 +481,6 @@ os.environ['TELEGRAM_BOT_TOKEN'] = token
 init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}
 # Ensure current working directory is the app root
 os.chdir(os.path.dirname(__file__))
-
-# Monkey-patch common frameworks to fall back to env token when given token is invalid
-def _patch_telebot():
-    try:
-        import telebot
-        import re as _re
-        _orig = telebot.TeleBot
-        class _PatchedTeleBot(telebot.TeleBot):
-            def __init__(self, tok, *args, **kwargs):
-                t = tok or ''
-                if ':' not in t or not _re.match(r'^\\d+:[A-Za-z0-9_-]+
-    Fetch recent logs from a Docker container.
-    Returns a string or None if not available.
-    """
-    try:
-        if runtime_id.startswith("proc:"):
-            return None
-        client = docker_from_env()
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None, t):
-                    env_t = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or os.getenv('TOKEN') or ''
-                    if env_t:
-                        t = env_t
-                super().__init__(t, *args, **kwargs)
-        telebot.TeleBot = _PatchedTeleBot
-    except Exception:
-        pass
-
-_patch_telebot()
-
-# Heartbeat thread to confirm liveness in logs
-def _heartbeat():
-    while True:
-        try:
-            print('gravix_runner: heartbeat alive')
-        except Exception:
-            pass
-        time.sleep(30)
-threading.Thread(target=_heartbeat, daemon=True).start()
-
-# Run the user's entry file in this process
-print('gravix_runner: entry=bot.py token_len=%d' % (len(token)))
-def _try_run():
-    runpy.run_path('bot.py', init_globals=init_globals)
-
-try:
-    _try_run()
-except ModuleNotFoundError as e:
-    missing = getattr(e, 'name', None)
-    if not missing and 'No module named' in str(e):
-        m = re.search(r"No module named ['\\\"]([^'\\\"]+)['\\\"]", str(e))
-        if m:
-            missing = m.group(1)
-    _MAP = {
-        'telebot': 'pyTelegramBotAPI',
-        'telegram': 'python-telegram-bot',
-        'PIL': 'pillow',
-        'cv2': 'opencv-python',
-        'bs4': 'beautifulsoup4',
-        'yaml': 'pyyaml',
-        'Crypto': 'pycryptodome',
-        'OpenSSL': 'pyOpenSSL',
-    }
-    pkg = _MAP.get(missing)
-    if pkg:
-        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
-            _try_run()
-        except Exception:
-            import traceback; traceback.print_exc(); sys.exit(1)
-    else:
-        raise
-except SystemExit:
-    raise
-except Exception:
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-"""
-        with open(os.path.join(temp_dir, "gravix_runner.py"), "w", encoding="utf-8") as f:
-            f.write(runner_code)
-
-        # Base image selection based on framework
-        base_img = AIOGRAM_V2_IMAGE if framework == "aiogram_v2" else DEFAULT_BASE_IMAGE
-        dockerfile = (
-            f"FROM {base_img}\n"
-            "WORKDIR /app\n"
-            "COPY requirements.txt .\n"
-            "RUN pip install --no-cache-dir -r requirements.txt\n"
-            "COPY bot.py .\n"
-            "COPY gravix_runner.py .\n"
-            # Provide token via env (runner injects into globals)
-            f"ENV TELEGRAM_TOKEN={token}\n"
-            # Also set common variants for user code that reads env
-            f"ENV TOKEN={token}\n"
-            f"ENV BOT_TOKEN={token}\n"
-            f"ENV {token_var}={token}\n"
-            'CMD ["python","/app/gravix_runner.py"]\n'
-        )
-        with open(os.path.join(temp_dir, "Dockerfile"), "w", encoding="utf-8") as f:
-            f.write(dockerfile)
-
-        image_tag = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
-        container_name = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
-
-        # Build image
-        log_event(f"Building image {image_tag} for {bot_id}")
-        client.images.build(path=temp_dir, tag=image_tag, rm=True, timeout=BUILD_TIMEOUT_SECS)
-
-        # Ensure network exists or use default bridge
-        network = RUNTIME_NETWORK
-        if network:
-            try:
-                nets = client.networks.list(names=[network])
-                if not nets:
-                    client.networks.create(name=network)
-                    log_event(f"Created missing Docker network: {network}")
-            except Exception:
-                log_event(f"Could not verify/create network '{network}', proceeding with defaults.")
-                network = None
-
-        # Run container with simple resource limits (same-to-same style)
-        container = client.containers.run(
-            image_tag,
-            name=container_name,
-            detach=True,
-            cpu_quota=DEFAULT_CPU_QUOTA,
-            mem_limit=DEFAULT_MEM_LIMIT,
-            pids_limit=DEFAULT_PIDS_LIMIT,
-            network=network if network else None,
-            restart_policy={"Name": "unless-stopped"},
-        )
-
-        runtime_id = container.id
-        log_event(f"Runtime started {runtime_id} for {bot_id} (framework={framework})")
-        return True, runtime_id, None
-    except docker_errors.BuildError:
-        return False, None, "build_error"
-    except Exception as e:
-        log_event(f"Build/run failed for {bot_id}: {e}")
-        return False, None, str(e)
-    finally:
-        if temp_dir:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def stop_runtime(runtime_id: str) -> bool:
-    try:
-        if runtime_id.startswith("proc:"):
-            pid = int(runtime_id.split(":", 1)[1])
-            os.kill(pid, signal.SIGTERM)
-            return True
-        # Docker container id
-        client = docker_from_env()
-        try:
-            client.api.stop(runtime_id, timeout=10)
-        except Exception:
-            pass
-        try:
-            client.api.remove_container(runtime_id, force=True)
-        except Exception:
-            pass
-        return True
-    except Exception:
-        return False
-
-
-def restart_runtime(runtime_id: str) -> bool:
-    try:
-        if runtime_id.startswith("proc:"):
-            # Not supported for local process
-            return False
-        client = docker_from_env()
-        client.api.restart(runtime_id)
-        return True
-    except Exception:
-        return False
-
-
-def remove_image(image_tag: str) -> bool:
-    try:
-        client = docker_from_env()
-        client.images.remove(image=image_tag, force=True)
-        return True
-    except Exception:
-        return False
-
-
-def remove_workspace(workspace: str):
-    try:
-        shutil.rmtree(workspace, ignore_errors=True)
-    except Exception:
-        pass
-
-
-def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
-    """
-    Fetch recent logs from a Docker container.
-    Returns a string or None if not available.
-    """
-    try:
-        if runtime_id.startswith("proc:"):
-            return None
-        client = docker_from_env()
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None, t):
-                    env_t = _get_env_token()
-                    if env_t:
-                        t = env_t
-                super().__init__(t, *args, **kwargs)
-        telebot.TeleBot = _PatchedTeleBot
-    except Exception:
-        pass
-
-def _patch_aiogram():
-    try:
-        # aiogram v3
-        import aiogram
-        if hasattr(aiogram, 'Bot'):
-            _orig = aiogram.Bot
-            class _PatchedAioBot(aiogram.Bot):
-                def __init__(self, tok, *args, **kwargs):
-                    t = tok or ''
-                    if not _is_valid_token(t):
-                        env_t = _get_env_token()
-                        if env_t:
-                            t = env_t
-                    super().__init__(t, *args, **kwargs)
-            aiogram.Bot = _PatchedAioBot
-    except Exception:
-        pass
-    try:
-        # aiogram v2 (token passed into Bot(..))
-        from aiogram import Bot as _BotV2
-        _orig2 = _BotV2
-        class _PatchedAioBot2(_orig2):
-            def __init__(self, tok, *args, **kwargs):
-                t = tok or ''
-                if not _is_valid_token(t):
-                    env_t = _get_env_token()
-                    if env_t:
-                        t = env_t
-                super().__init__(t, *args, **kwargs)
-        # Can't easily rebind import alias, but if user does "from aiogram import Bot",
-        # most code will import after our patch when module is imported above.
-    except Exception:
-        pass
-
-def _patch_ptb():
-    try:
-        # python-telegram-bot
-        import telegram
-        _orig = telegram.Bot
-        class _PatchedPTBBot(telegram.Bot):
-            def __init__(self, tok, *args, **kwargs):
-                t = tok or ''
-                if not _is_valid_token(t):
-                    env_t = _get_env_token()
-                    if env_t:
-                        t = env_t
-                super().__init__(t, *args, **kwargs)
-        telegram.Bot = _PatchedPTBBot
-    except Exception:
-        pass
-
-def _patch_pyrogram():
-    try:
-        import pyrogram
-        _orig = pyrogram.Client
-        class _PatchedClient(pyrogram.Client):
-            def __init__(self, name, *args, **kwargs):
-                # pyrogram uses bot_token kwarg for bots
-                bt = kwargs.get('bot_token') or ''
-                if not _is_valid_token(bt):
-                    env_t = _get_env_token()
-                    if env_t:
-                        kwargs['bot_token'] = env_t
-                super().__init__(name, *args, **kwargs)
-        pyrogram.Client = _PatchedClient
-    except Exception:
-        pass
-
-_patch_telebot()
-_patch_aiogram()
-_patch_ptb()
-_patch_pyrogram()
-
-# Heartbeat thread to confirm liveness in logs
-def _heartbeat():
-    while True:
-        try:
-            print('gravix_runner: heartbeat alive')
-        except Exception:
-            pass
-        time.sleep(30)
-threading.Thread(target=_heartbeat, daemon=True).start()
-
-# Run the user's entry file in this process
-print('gravix_runner: entry=bot.py token_len=%d' % (len(token)))
-def _try_run():
-    runpy.run_path('bot.py', init_globals=init_globals)
-
-try:
-    _try_run()
-except ModuleNotFoundError as e:
-    missing = getattr(e, 'name', None)
-    if not missing and 'No module named' in str(e):
-        m = re.search(r"No module named ['\\\"]([^'\\\"]+)['\\\"]", str(e))
-        if m:
-            missing = m.group(1)
-    _MAP = {
-        'telebot': 'pyTelegramBotAPI',
-        'telegram': 'python-telegram-bot',
-        'PIL': 'pillow',
-        'cv2': 'opencv-python',
-        'bs4': 'beautifulsoup4',
-        'yaml': 'pyyaml',
-        'Crypto': 'pycryptodome',
-        'OpenSSL': 'pyOpenSSL',
-    }
-    pkg = _MAP.get(missing)
-    if pkg:
-        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
-            _try_run()
-        except Exception:
-            import traceback; traceback.print_exc(); sys.exit(1)
-    else:
-        raise
-except SystemExit:
-    raise
-except Exception:
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-"""
-    Fetch recent logs from a Docker container.
-    Returns a string or None if not available.
-    """
-    try:
-        if runtime_id.startswith("proc:"):
-            return None
-        client = docker_from_env()
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None, t):
-                    env_t = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or os.getenv('TOKEN') or ''
-                    if env_t:
-                        t = env_t
-                super().__init__(t, *args, **kwargs)
-        telebot.TeleBot = _PatchedTeleBot
-    except Exception:
-        pass
-
-_patch_telebot()
 
 # Heartbeat thread to confirm liveness in logs
 def _heartbeat():
