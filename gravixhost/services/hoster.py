@@ -344,7 +344,8 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
         except Exception:
             cpu_limit = float(RUNTIME_CPU_LIMIT)
         mem_limit = str(settings.get("mem_limit", RUNTIME_MEM_LIMIT))
-        restart_policy_on = (str(settings.get("restart_policy", "on")).lower() == "on")
+        # Default restart policy to off to avoid restart loops for scripts that exit quickly
+        restart_policy_on = (str(settings.get("restart_policy", "off")).lower() == "on")
         network = settings.get("network", RUNTIME_NETWORK)
         host_cfg = client.api.create_host_config(
             nano_cpus=int(cpu_limit * 1e9),
