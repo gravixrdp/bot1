@@ -715,13 +715,6 @@ async def contact_admin_back(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     await message.answer(bold("🏠 Main Menu"), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
 
-# Global Back handler: works from any state (including after "Sent to admin.")
-@router.message(F.text.in_(["⬅️ Back", "Back", "🔙 Back", "/back"]))
-async def any_back(message: Message, state: FSMContext):
-    await state.clear()
-    user = get_user(message.from_user.id)
-    await message.answer(bold("🏠 Main Menu"), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
-
 
 @router.message(ContactStates.chat, F.text)
 async def contact_admin_forward(message: Message, state: FSMContext):
