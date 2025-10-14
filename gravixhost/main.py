@@ -28,6 +28,7 @@ from .storage import (
 from .services.hoster import save_upload, build_and_run, remove_workspace
 from .services.scheduler import Scheduler
 from .admin import router as admin_router
+from .services.ai_assistant import suggest_fix
 
 
 @dataclass
@@ -621,33 +622,45 @@ async def handle_token(message: Message, state: FSMContext):
     await message.answer("🔧 Setting up your hosting environment...", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
     ok, runtime_id, err = build_and_run(message.from_user.id, pending.bot_record_id, token, pending.workspace, entry=pending.entry_name)
     if not ok:
-        details = f"\nDetails: {code(str(err))}" if err else ""
+        # Build user-friendly guidance, without exposing infrastructure details.
+        base_msg = ""
         if err == "docker_unavailable":
-            msg = (
-                bold("⚠️ Docker not available") + "\n"
-                + "The hosting node cannot reach Docker. Please install and start Docker, and allow this user to access it.\n"
-                + "Quick fix (Ubuntu):\n"
-                + pre("sudo apt-get update && sudo apt-get install -y docker.io\n"
-                      "sudo systemctl enable --now docker\n"
-                      "sudo usermod -aG docker $USER && newgrp docker")
+            base_msg = (
+                bold("⚠️ Hosting service not available") + "\n"
+                + "System thoda busy ya unavailable hai. Please try again after some time."
             )
         elif err == "build_error":
-            msg = (
+            base_msg = (
                 bold("⚠️ Build failed") + "\n"
-                + "Docker image build failed. Check your requirements and that the project builds in Docker locally."
-                + details
+                + "Kuch dependencies or imports resolve nahi ho rahe.\n"
+                + "• Check your requirements.txt (spelling and versions)\n"
+                + "• Ensure entry file runs locally: " + code(f"python {pending.entry_name or 'your_file.py'}")
+            )
+        elif err == "no_entry_py":
+            base_msg = (
+                bold("⚠️ Entry file not found") + "\n"
+                + "Please upload a .py file (e.g., bot.py/app.py/main.py) or a zip with your code."
             )
         else:
-            msg = (
+            base_msg = (
                 bold("⚠️ Setup failed") + "\n"
-                + "Please double-check your code or try again later.\n"
-                + "Tip: Ensure your entry file runs with "
+                + "Please double-check code, imports, and token. Try running locally: "
                 + code(f"python {pending.entry_name or 'your_file.py'}")
-                + " locally and uses valid imports."
-                + details
             )
+
+        # Ask the AI assistant for a concise fix suggestion
+        ctx_lines = [
+            f"user_id={message.from_user.id}",
+            f"bot_id={pending.bot_record_id}",
+            f"entry={pending.entry_name}",
+            f"error={err}",
+            "Goal: get Telegram bot running.",
+        ]
+        ai_tip = await asyncio.to_thread(suggest_fix, "\n".join([l for l in ctx_lines if l]))
+        tip_text = ("\n\n" + bold("Suggested fix") + ":\n" + ai_tip) if ai_tip else ""
+
         await message.answer(
-            msg,
+            base_msg + tip_text,
             reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
             parse_mode=ParseMode.HTML,
         )
