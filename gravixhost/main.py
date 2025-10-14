@@ -366,7 +366,7 @@ async def cmd_stop(message: Message):
     if not active:
         await message.answer(bold("ℹ️ No active hosted bots."), reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
         return
-n
+
     from .services.hoster import stop_runtime
     stopped_any = False
     for b in active:
