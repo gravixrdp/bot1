@@ -129,7 +129,8 @@ def _normalize_requirement(name: str) -> Optional[str]:
         return None
     # Final guard: basic sanity check to avoid clearly invalid package names
     import re
-    if not re.match(r"^[a-z0-9][a-z0-9._+-]*$", mapped):
+    # Allow mixed-case names (e.g., pyTelegramBotAPI). PyPI is case-insensitive.
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$", mapped):
         return None
     return mapped
 
