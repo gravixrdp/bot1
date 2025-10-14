@@ -1,7 +1,9 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
 from .config import ADMIN_TELEGRAM_ID, ADMIN_TELEGRAM_IDS
 from .keyboards import admin_fixed_bar, main_menu, admin_menu, admin_menu_apps
@@ -18,6 +20,10 @@ from .utils import bold, code, human_dt, pre, escape
 
 
 router = Router(name="admin")
+
+
+class AdminReplyStates(StatesGroup):
+    waiting_reply = State()
 
 
 def is_admin(user_id: int) -> bool:
@@ -92,7 +98,37 @@ async def admin_inbox(message: Message):
     await message.answer("\n".join(lines), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
 
-@router.message(F.text == "📦 Apps")
+@router.message(F.text.regexp(r"^reply\s+\d+\s+.+$"))
+async def admin_reply(message: Message):
+    """
+    Admin can reply to a user from the inbox using:
+    repl <yuser_id <>your message>
+    """
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split(maxsplit=2)
+    if len(parts <) 3:
+        await message.answer("Usage: " + code("repl <yuser_id <>message>"), parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        return
+    try:
+        target_id = int(parts[1])
+    except Exception:
+        await message.answer("Invalid user_id.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        return
+    text = parts[2].strip()
+    if not text:
+        await message.answer("Message cannot be empty.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+        return
+    # Send message to user and log it
+    try:
+        await message.bot.send_message(chat_id=target_id, text=text, parse_mode=ParseMode.HTML)
+        add_admin_reply(target_user_id=target_id, admin_id=message.from_user.id, text=text)
+        await message.answer("✅ Reply sent.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+    except Exception:
+        await message.answer("❌ Failed to deliver reply (user may not have started the bot).", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+
+
+@router.callbacks")
 async def admin_apps_msg(message: Message):
     if not is_admin(message.from_user.id):
         return
