@@ -1,7 +1,7 @@
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, CallbackQuery, Document
@@ -13,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from .config import MASTER_BOT_TOKEN, APP_NAME
-from .keyboards import main_menu, support_url_kb
+from .keyboards import main_menu, support_url_kb, user_manage_menu
 from .utils import bold, code, human_dt, is_valid_token, italic, underline, strike, pre
 from .storage import (
     get_user,
@@ -233,9 +233,86 @@ async def on_manage_bots(message: Message):
     user = get_user(message.from_user.id)
     bots = get_user_bots(message.from_user.id)
     lines = [bold("⚙️ Manage My Bots")]
+    if not bots:
+        lines.append("• You have no bots yet. Use '📦 Host My Bot' to upload.")
+    else:
+        for b in bots:
+            lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    lines.append("\nUse the buttons below. For stop/restart, send: " + code("stop <bot_id>") + " / " + code("restart <bot_id>"))
+    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "🔍 My Running Bots")
+async def my_running_bots(message: Message):
+    bots = [b for b in get_user_bots(message.from_user.id) if b["status"] == "running"]
+    if not bots:
+        await message.answer(bold("ℹ️ No running bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    lines = [bold("🟢 Running Bots")]
     for b in bots:
-        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
-    await message.answer("\n".join(lines), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])}")
+    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "🧾 My Logs")
+async def my_logs(message: Message):
+    # Show last logs related to user's bots
+    from .storage import _read_db
+    db = _read_db()
+    my_ids: List[str] = [b["id"] for b in get_user_bots(message.from_user.id)]
+    logs = []
+    for entry in reversed(db.get("logs", [])):
+        ev = entry.get("event", "")
+        if any(bid in ev for bid in my_ids) or str(message.from_user.id) in ev:
+            logs.append(f"• {entry.get('time','')} — {ev}")
+        if len(logs) >= 20:
+            break
+    if not logs:
+        await message.answer(bold("No logs yet."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    await message.answer(bold("🧾 Your Logs (last 20)") + "\n" + "\n".join(logs), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "🛑 Stop My Bot")
+async def help_stop_my_bot(message: Message):
+    await message.answer("Send: " + code("stop <bot_id>"), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "♻️ Restart My Bot")
+async def help_restart_my_bot(message: Message):
+    await message.answer("Send: " + code("restart <bot_id>"), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^stop\s+\S+$"))
+async def user_stop_bot(message: Message):
+    bot_id = message.text.strip().split()[1]
+    from .storage import get_bot
+    from .services.hoster import stop_runtime
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != message.from_user.id:
+        await message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    rid = b.get("runtime_id")
+    if rid:
+        stop_runtime(rid)
+    mark_stopped(bot_id)
+    await message.answer(f"🛑 Stopped {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^restart\s+\S+$"))
+async def user_restart_bot(message: Message):
+    bot_id = message.text.strip().split()[1]
+    from .storage import get_bot
+    from .services.hoster import restart_runtime
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != message.from_user.id:
+        await message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    rid = b.get("runtime_id")
+    if rid and restart_runtime(rid):
+        await message.answer(f"♻️ Restarted {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    else:
+        await message.answer("Failed to restart.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")
@@ -458,9 +535,13 @@ async def cb_manage(cb: CallbackQuery):
     user = get_user(cb.from_user.id)
     bots = get_user_bots(cb.from_user.id)
     lines = ["⚙️ Manage My Bots"]
-    for b in bots:
-        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
-    await cb.message.answer("\n".join(lines), reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.HTML)
+    if not bots:
+        lines.append("• You have no bots yet. Use '📦 Host My Bot' to upload.")
+    else:
+        for b in bots:
+            lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    lines.append("\nUse the buttons below. For stop/restart, send: " + code("stop <bot_id>") + " / " + code("restart <bot_id>"))
+    await cb.message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
