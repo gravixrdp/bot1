@@ -928,6 +928,13 @@ def create_app():
     scheduler = Scheduler(on_timeout_notify=lambda uid, bid: asyncio.create_task(on_timeout_notify(bot, uid, bid)))
 
     async def run():
+        # Start Redis command consumer in background so dashboard can control rts
+        try:
+            from .services.commands import command_consumer
+            asyncio.create_task(command_consumer())
+        except Exception:
+            # non-fatal if redis not configured
+            pass
         await scheduler.start()
         await dp.start_polling(bot)
 
