@@ -78,16 +78,23 @@ async def admin_apps_msg(message: Message):
         return
     text = [bold("📦 Apps")]
     db = _read_db()
-    for b in db["bots"].values():
+    bots = list(db["bots"].values())
+    for b in bots:
         text.append(
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append(
-        "\n" + bold("Admin commands:") +
-        "\n" + code("stopbot <id>") + "  " + code("restartbot <id>") + "  " + code("removebot <id>") + "  " + code("logsbot <id>")
-    )
     await message.answer("\n".join(text), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+
+    # Send quick action buttons for one-tap control
+    from .keyboards import bots_action_list
+    if bots:
+        await message.answer(bold("🛑 Stop a Bot") + "\nTap to stop:", reply_markup=bots_action_list(bots, "Stop", "admin_stop"), parse_mode=ParseMode.HTML)
+        await message.answer(bold("♻️ Restart a Bot") + "\nTap to restart:", reply_markup=bots_action_list(bots, "Restart", "admin_restart"), parse_mode=ParseMode.HTML)
+        await message.answer(bold("🗑️ Remove a Bot") + "\nTap to remove:", reply_markup=bots_action_list(bots, "Remove", "admin_remove"), parse_mode=ParseMode.HTML)
+        await message.answer(bold("📜 Bot Logs") + "\nTap to view:", reply_markup=bots_action_list(bots, "Logs", "admin_logs"), parse_mode=ParseMode.HTML)
+    else:
+        await message.answer(bold("No bots yet."), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🧾 Logs")
@@ -320,18 +327,27 @@ async def admin_apps(cb: CallbackQuery):
         return
     text = [bold("📦 Apps")]
     db = _read_db()
-    for b in db["bots"].values():
+    bots = list(db["bots"].values())
+    for b in bots:
         text.append(
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append("\n" + bold("Admin commands:") + "\n<code>stopbot &lt;id&gt;</code> <code>restartbot &lt;id&gt;</code> <code>removebot &lt;id&gt;</code>")
     await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+
+    # Inline quick action lists
+    from .keyboards import bots_action_list
+    if bots:
+        await cb.message.answer(bold("🛑 Stop a Bot") + "\nTap to stop:", reply_markup=bots_action_list(bots, "Stop", "admin_stop"), parse_mode=ParseMode.HTML)
+        await cb.message.answer(bold("♻️ Restart a Bot") + "\nTap to restart:", reply_markup=bots_action_list(bots, "Restart", "admin_restart"), parse_mode=ParseMode.HTML)
+        await cb.message.answer(bold("🗑️ Remove a Bot") + "\nTap to remove:", reply_markup=bots_action_list(bots, "Remove", "admin_remove"), parse_mode=ParseMode.HTML)
+        await cb.message.answer(bold("📜 Bot Logs") + "\nTap to view:", reply_markup=bots_action_list(bots, "Logs", "admin_logs"), parse_mode=ParseMode.HTML)
+    else:
+        await cb.message.answer(bold("No bots yet."), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
-@router.callback_query(F.data == "admin_logs")
-async def admin_logs(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("admin_stop def admin_logs(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
     db = _read_db()
