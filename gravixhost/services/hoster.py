@@ -272,7 +272,6 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
         host_cfg = client.api.create_host_config(
             nano_cpus=int(float(RUNTIME_CPU_LIMIT) * 1e9),
             mem_limit=RUNTIME_MEM_LIMIT,
-            auto_remove=True,
             restart_policy={"Name": "unless-stopped"}
         )
         create_kwargs = {
@@ -303,7 +302,15 @@ def stop_runtime(runtime_id: str) -> bool:
             return True
         # Docker container id
         client = docker_from_env()
-        client.api.stop(runtime_id)
+        try:
+            client.api.stop(runtime_id, timeout=10)
+        except Exception:
+            # It might already be stopped
+            pass
+        try:
+            client.api.remove_container(runtime_id, force=True)
+        except Exception:
+            pass
         return True
     except Exception:
         return False

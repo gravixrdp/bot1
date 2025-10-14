@@ -12,7 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
-from .config import MASTER_BOT_TOKEN, APP_NAME
+from .config import MASTER_BOT_TOKEN, APP_NAME, ADMIN_TELEGRAM_ID
 from .keyboards import main_menu, support_url_kb, user_manage_menu, bots_action_list
 from .utils import bold, code, human_dt, is_valid_token, italic, underline, strike, pre
 from .storage import (
@@ -589,8 +589,33 @@ async def handle_token(message: Message, state: FSMContext):
     await message.answer("🔧 Setting up your hosting environment...", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
     ok, runtime_id, err = build_and_run(message.from_user.id, pending.bot_record_id, token, pending.workspace, entry=pending.entry_name)
     if not ok:
+        details = f"\nDetails: {code(str(err))}" if err else ""
+        if err == "docker_unavailable":
+            msg = (
+                bold("⚠️ Docker not available") + "\n"
+                + "The hosting node cannot reach Docker. Please install and start Docker, and allow this user to access it.\n"
+                + "Quick fix (Ubuntu):\n"
+                + pre("sudo apt-get update && sudo apt-get install -y docker.io\n"
+                      "sudo systemctl enable --now docker\n"
+                      "sudo usermod -aG docker $USER && newgrp docker")
+            )
+        elif err == "build_error":
+            msg = (
+                bold("⚠️ Build failed") + "\n"
+                + "Docker image build failed. Check your requirements and that the project builds in Docker locally."
+                + details
+            )
+        else:
+            msg = (
+                bold("⚠️ Setup failed") + "\n"
+                + "Please double-check your code or try again later.\n"
+                + "Tip: Ensure your entry file runs with "
+                + code(f"python {pending.entry_name or 'your_file.py'}")
+                + " locally and uses valid imports."
+                + details
+            )
         await message.answer(
-            f"{bold('⚠️ Setup failed')}\nPlease double-check your code or try again later.\nTip: Ensure your entry file runs with `python {code(pending.entry_name or 'your_file.py')}` locally and uses valid imports.",
+            msg,
             reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
             parse_mode=ParseMode.HTML,
         )
@@ -670,17 +695,29 @@ async def cb_contact_admin(cb: CallbackQuery):
 async def contact_admin_forward(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user.get("is_premium"):
+        await message.answer("This feature is available for premium users only.", parse_mode=ParseMode.HTML)
         await state.clear()
-AM_ID
+        return
     if not ADMIN_TELEGRAM_ID:
         await message.answer("Admin is not configured.", parse_mode=ParseMode.HTML)
+        await state.clear()
         return
-    await message.bot.send_message(
-        chat_id=ADMIN_TELEGRAM_ID,
-        text=f"📨 Message from {bold(message.from_user.full_name)} ({code(str(message.from_user.id))}):\n{message.text[6:]}",
-        parse_mode=ParseMode.HTML,
-    )
-    await message.answer("✅ Sent to admin.", parse_mode=ParseMode.HTML)
+    # Persist to admin inbox
+    try:
+        from .storage import add_message
+        add_message(message.from_user.id, message.text)
+    except Exception:
+        # Non-fatal if inbox storage fails
+        pass
+    try:
+        await message.bot.send_message(
+            chat_id=ADMIN_TELEGRAM_ID,
+            text=f"📨 Message from {bold(message.from_user.full_name)} ({code(str(message.from_user.id))}):\n{message.text}",
+            parse_mode=ParseMode.HTML,
+        )
+        await message.answer("✅ Sent to admin.", parse_mode=ParseMode.HTML)
+    finally:
+        await state.clear()
 
 
 @router.callback_query(F.data == "how_it_works")
@@ -803,13 +840,13 @@ async def cb_user_logs(cb: CallbackQuery):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_modeeMode.HTML)
+            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await cb.message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await cb.message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
