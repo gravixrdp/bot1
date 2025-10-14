@@ -13,7 +13,7 @@ from .storage import (
     get_user_bots,
     update_user,
 )
-from .utils import bold, code, human_dt
+from .utils import bold, code, human_dt, pre, escape
 
 
 router = Router(name="admin")
@@ -375,7 +375,72 @@ async def admin_apps(cb: CallbackQuery):
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("admin_stop def admin_logs(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("admin_stop:"))
+async def admin_cb_stop(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id):
+        return
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot, mark_stopped
+    from .services.hoster import stop_runtime
+    b = get_bot(bot_id)
+    if not b:
+        await cb.message.answer("Bot not found.", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    rid = b.get("runtime_id")
+    if rid:
+        stop_runtime(rid)
+    mark_stopped(bot_id)
+    await cb.message.answer(f"🛑 Stopped {code(bot_id)}", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin_restart:"))
+async def admin_cb_restart(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id):
+        return
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot
+    from .services.hoster import restart_runtime
+    b = get_bot(bot_id)
+    if not b:
+        await cb.message.answer("Bot not found.", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    rid = b.get("runtime_id")
+    if rid and restart_runtime(rid):
+        await cb.message.answer(f"♻️ Restarted {code(bot_id)}", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    else:
+        await cb.message.answer("Failed to restart.", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin_remove:"))
+async def admin_cb_remove(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id):
+        return
+    bot_id = cb.data.split(":", 1)[1]
+    from .storage import get_bot, delete_bot
+    from .services.hoster import stop_runtime, remove_workspace, remove_image
+    b = get_bot(bot_id)
+    if not b:
+        await cb.message.answer("Bot not found.", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+        await cb.answer()
+        return
+    rid = b.get("runtime_id")
+    if rid:
+        stop_runtime(rid)
+    image_tag = f"gravixhost_{b['owner_id']}_{bot_id}".lower()
+    remove_image(image_tag)
+    if b.get("path"):
+        remove_workspace(b["path"])
+    delete_bot(bot_id)
+    await cb.message.answer(f"🗑️ Removed {code(bot_id)}", reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    await cb.answer()
+
+
+@router.callback_query(F.data == "admin_logs")
+async def admin_logs(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
     db = _read_db()

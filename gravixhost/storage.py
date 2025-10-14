@@ -90,7 +90,27 @@ def clear_admin_logs():
 
 def add_message(user_id: int, text: str):
     """
-    Store a)
+    Store a message from a user to the admin inbox.
+    """
+    db = _read_db()
+    db.setdefault("messages", [])
+    db["messages"].append(
+        {
+            "user_id": str(user_id),
+            "text": text,
+            "time": datetime.utcnow().isoformat(),
+        }
+    )
+    _write_db(db)
+
+
+def get_messages(limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Return the last N messages for the admin inbox.
+    """
+    db = _read_db()
+    msgs = db.get("messages", [])
+    return msgs[-limit:]
 
 
 # Users

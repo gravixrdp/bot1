@@ -677,6 +677,13 @@ async def contact_admin_forward(message: Message, state: FSMContext):
         await message.answer("Admin is not configured.", parse_mode=ParseMode.HTML)
         await state.clear()
         return
+    # Persist to admin inbox
+    try:
+        from .storage import add_message
+        add_message(message.from_user.id, message.text)
+    except Exception:
+        # Non-fatal if inbox storage fails
+        pass
     try:
         await message.bot.send_message(
             chat_id=ADMIN_TELEGRAM_ID,
