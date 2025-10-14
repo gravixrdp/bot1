@@ -248,35 +248,22 @@ async def admin_settings_msg(message: Message):
     cpu = s.get("cpu_limit")
     mem = s.get("mem_limit")
     net = s.get("network") or "default"
+    run_mode = s.get("run_mode", "runner")
     text = (
         bold("⚙️ Settings") + "\n"
         + f"• Free hosting time: {bold(str(free_minutes))} minutes\n"
         + f"• Restart policy: {bold('Enabled' if restart_on else 'Disabled')}\n"
         + f"• CPU limit: {bold(str(cpu))}\n"
         + f"• Memory limit: {bold(str(mem))}\n"
-        + f"• Network: {bold(str(net))}\n\n"
+        + f"• Network: {bold(str(net))}\n"
+        + f"• Run mode: {bold(run_mode)}\n\n"
         + "Use commands to adjust:\n"
         + code("setfree <minutes>") + " — e.g., setfree 60\n"
         + code("setrestart <on|off>") + " — e.g., setrestart on\n"
         + code("setcpu <fraction>") + " — e.g., setcpu 0.5\n"
         + code("setmem <limit>") + " — e.g., setmem 256m\n"
         + code("setnetwork <name|off>") + " — e.g., setnetwork mynet or setnetwork off\n"
-    )
-    await message.answer(text, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
-    mem = s.get("mem_limit", "256m")
-    net = s.get("network") or "default"
-    text = (
-        bold("⚙️ Settings") + "\n"
-        + f"• Free hosting time: {bold(str(free_mins))} min\n"
-        + f"• Restart policy: {bold(restart)}\n"
-        + f"• CPU limit: {bold(str(cpu))}\n"
-        + f"• Memory limit: {bold(str(mem))}\n"
-        + f"• Network: {bold(str(net))}\n\n"
-        + code("setfree <minutes>") + " — e.g., setfree 120\n"
-        + code("setrestart <on|off>") + " — e.g., setrestart off\n"
-        + code("setcpu <fraction>") + " — e.g., setcpu 0.75\n"
-        + code("setmem <limit>") + " — e.g., setmem 512m\n"
-        + code("setnetwork <name|off>") + " — e.g., setnetwork mynet or setnetwork off\n"
+        + code("setrun <runner|direct>") + " — e.g., setrun direct\n"
     )
     await message.answer(text, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
@@ -689,3 +676,11 @@ async def set_network(message: Message):
     else:
         update_settings(network=val)
         await message.answer(f"✅ Network set to {code(val)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+@router.message(F.text.regexp(r"^setrun\s+(runner|direct)$"))
+async def set_run_mode(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    mode = message.text.strip().split()[1].lower()
+    update_settings(run_mode=mode)
+    await message.answer(f"✅ Run mode set to {bold(mode)}.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)

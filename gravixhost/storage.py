@@ -290,6 +290,7 @@ def get_settings() -> Dict[str, Any]:
       - cpu_limit: str/float (default from env RUNTIME_CPU_LIMIT)
       - mem_limit: str (default from env RUNTIME_MEM_LIMIT)
       - network: str | None (default from env RUNTIME_NETWORK)
+      - run_mode: "runner" | "direct" (default "runner")
     """
     db = _read_db()
     s = db.get("settings", {}) or {}
@@ -304,6 +305,8 @@ def get_settings() -> Dict[str, Any]:
         s["mem_limit"] = RUNTIME_MEM_LIMIT
     if "network" not in s:
         s["network"] = RUNTIME_NETWORK
+    if "run_mode" not in s:
+        s["run_mode"] = "runner"
     db["settings"] = s
     _write_db(db)
     return s

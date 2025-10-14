@@ -15,6 +15,7 @@ from ..storage import log_event, get_settings
 # This helps when users write code like "import telebot" but the pip package is "pyTelegramBotAPI"
 _PYPI_MAP = {
     "telebot": "pyTelegramBotAPI",
+    "telegram": "python-telegram-bot",  # PTB provides 'telegram' module
     "PIL": "pillow",
     "cv2": "opencv-python",
     "dotenv": "python-dotenv",
@@ -192,7 +193,12 @@ def detect_requirements(workspace: str) -> List[str]:
                     base = re.split(r"[<>=!~ ]", s)[0].split(".")[0]
                     # Only include if its base matches an import we saw (or explicit mapping)
                     base_mapped = _PYPI_MAP.get(base, base)
-                    if base in import_names or (isinstance(base_mapped, str) and base_mapped in reqs) or s.lower().startswith("pytelegrambotapi"):  # allow explicit common packages
+                    if (
+                        base in import_names
+                        or (isinstance(base_mapped, str) and base_mapped in reqs)
+                        or s.lower().startswith("pytelegrambotapi")
+                        or s.lower().startswith("python-telegram-bot")
+                    ):  # allow explicit common packages
                         norm = _normalize_requirement(s)
                         if norm:
                             reqs.add(norm)
@@ -203,6 +209,128 @@ def detect_requirements(workspace: str) -> List[str]:
 
 
 def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, requirements: Optional[List[str]] = None):
+    # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
+    entry_file = entry or "bot.py"
+
+    # Python runner: injects token into globals so common patterns like BOT_TOKEN/TOKEN work
+    runner_py = os.path.join(workspace, "gravix_runner.py")
+    runner_code = f"""import os, runpy, sys, subprocess, threading, time, re
+
+token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''
+# Expose in env for libraries that read from environment
+os.environ['BOT_TOKEN'] = token
+os.environ['TELEGRAM_TOKEN'] = token
+os.environ['TOKEN'] = token
+os.environ['TELEGRAM_BOT_TOKEN'] = token
+# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly
+init_globals = {{'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}}
+# Ensure current working directory is the app root
+os.chdir(os.path.dirname(__file__))
+
+# Heartbeat thread to confirm liveness in logs
+def _heartbeat():
+    while True:
+        try:
+            print('gravix_runner: heartbeat alive')
+        except Exception:
+            pass
+        time.sleep(30)
+threading.Thread(target=_heartbeat, daemon=True).start()
+
+# Run the user's entry file in this process
+print('gravix_runner: entry={entry_file} token_len=%d' % (len(token)))
+def _try_run():
+    runpy.run_path('{entry_file}', init_globals=init_globals)
+
+try:
+    _try_run()
+except ModuleNotFoundError as e:
+    missing = getattr(e, 'name', None)
+    if not missing and 'No module named' in str(e):
+        m = re.search(r"No module named ['\\"]([^'\\"]+)['\\"]", str(e))
+        if m:
+            missing = m.group(1)
+    _MAP = {{
+        'telebot': 'pyTelegramBotAPI',
+        'telegram': 'python-telegram-bot',
+        'PIL': 'pillow',
+        'cv2': 'opencv-python',
+        'bs4': 'beautifulsoup4',
+        'yaml': 'pyyaml',
+        'Crypto': 'pycryptodome',
+        'OpenSSL': 'pyOpenSSL',
+    }}
+    pkg = _MAP.get(missing)
+    if pkg:
+        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))
+        try:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
+            _try_run()
+        except Exception:
+            import traceback; traceback.print_exc(); sys.exit(1)
+    else:
+        raise
+except SystemExit:
+    raise
+except Exception:
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+"""
+    with open(runner_py, "w") as f:
+        f.write(runner_code)
+
+    # Shell runner (not used by CMD anymore; kept for compatibility)
+    runner_sh = os.path.join(workspace, "gravix_runner.sh")
+    with open(runner_sh, "w") as f:
+        f.write("#!/usr/bin/env bash\n")
+        f.write("set -e\n")
+        f.write('export BOT_TOKEN="${TELEGRAM_TOKEN}"\n')
+        f.write("python gravix_runner.py\n")
+    os.chmod(runner_sh, 0o755)
+
+    # Write autodetected requirements file (preferred)
+    req_auto_path = None
+    if requirements:
+        req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
+        with open(req_auto_path, "w") as rf:
+            rf.write("\n".join(requirements))
+        # Also ensure a requirements.txt exists for user code
+        req_txt_path = os.path.join(workspace, "requirements.txt")
+        if not os.path.exists(req_txt_path):
+            try:
+                with open(req_txt_path, "w") as rtf:
+                    rtf.write("\n".join(requirements))
+            except Exception:
+                pass
+
+    # Decide run mode from settings
+    try:
+        settings = get_settings()
+        run_mode = str(settings.get("run_mode", "runner")).lower()
+    except Exception:
+        run_mode = "runner"
+
+    dockerfile = os.path.join(workspace, "Dockerfile")
+    with open(dockerfile, "w") as f:
+        f.write("FROM python:3.11-slim\n")
+        f.write("WORKDIR /app\n")
+        f.write("COPY . /app\n")
+        # Basic system deps that frequently help builds (kept minimal)
+        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\n")
+        f.write("RUN pip install --no-cache-dir --upgrade pip\n")
+        # Prefer installing autodetected requirements first (clean set)
+        if req_auto_path:
+            f.write("RUN pip install -r requirements.autodetected.txt\n")
+        # Then try user requirements if present
+        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
+        f.write("ENV PYTHONUNBUFFERED=1\n")
+        if run_mode == "direct":
+            # Directly run user's entry, token is available via env (BOT_TOKEN/TOKEN/TELEGRAM_TOKEN)
+            f.write(f'CMD ["python", "-u", "/app/{entry_file}"]\n')
+        else:
+            # Use the Python runner to ensure token injection works for simple scripts
+            f.write('CMD ["python", "/app/gravix_runner.py"]\n')
     # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
     entry_file = entry or "bot.py"
 
@@ -259,7 +387,7 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("    traceback.print_exc()\\n")
         f.write("    sys.exit(1)\\n")
     with open(runner_py, "w") as f:
-        f.write("import os, runpy, sys, subprocess\n")
+        f.write("import os, runpy, sys, subprocess, threading, time\n")
         f.write("token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''\n")
         f.write("# Expose in env for libraries that read from environment\n")
         f.write("os.environ['BOT_TOKEN'] = token\n")
@@ -270,6 +398,15 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\n")
         f.write("# Ensure current working directory is the app root\n")
         f.write("os.chdir(os.path.dirname(__file__))\n")
+        f.write("# Heartbeat thread to confirm liveness in logs\n")
+        f.write("def _heartbeat():\n")
+        f.write("    while True:\n")
+        f.write("        try:\n")
+        f.write("            print('gravix_runner: heartbeat alive')\n")
+        f.write("        except Exception:\n")
+        f.write("            pass\n")
+        f.write("        time.sleep(30)\n")
+        f.write("threading.Thread(target=_heartbeat, daemon=True).start()\n")
         f.write("# Run the user's entry file in this process\n")
         f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\n")
         f.write("def _try_run():\n")
@@ -280,11 +417,12 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("    missing = getattr(e, 'name', None)\n")
         f.write("    if not missing and 'No module named' in str(e):\n")
         f.write("        try:\n")
-        f.write("            missing = str(e).split(\"'\")[1]\n")
+        f.write("            missing = str(e).split(\"'\\\")[1]\n")
         f.write("        except Exception:\n")
         f.write("            missing = None\n")
         f.write("    _MAP = {\n")
         f.write("        'telebot': 'pyTelegramBotAPI',\n")
+        f.write("        'telegram': 'python-telegram-bot',\n")
         f.write("        'PIL': 'pillow',\n")
         f.write("        'cv2': 'opencv-python',\n")
         f.write("        'bs4': 'beautifulsoup4',\n")
@@ -402,6 +540,16 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
             mem_limit=mem_limit,
             restart_policy={"Name": "unless-stopped"} if restart_policy_on else {"Name": "no"}
         )
+        # Ensure network exists if specified
+        if network:
+            try:
+                nets = client.networks.list(names=[network])
+                if not nets:
+                    client.networks.create(name=network)
+                    log_event(f"Created missing Docker network: {network}")
+            except Exception:
+                # Non-fatal: container will use default bridge if network not found/created
+                log_event(f"Could not verify/create network '{network}', proceeding with defaults.")
         create_kwargs = {
             "image": image_tag,
             "name": image_tag,
