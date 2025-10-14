@@ -593,8 +593,10 @@ async def upload_error(message: Message):
 
 @router.message(HostStates.waiting_token)
 async def handle_token(message: Message, state: FSMContext):
-    token = message.text.strip()
-    if not await is_valid_token(token):
+    raw = message.text
+    from .utils import normalize_token
+    token = normalize_token(raw)
+    if not token or not await is_valid_token(token):
         await message.answer(
             "❌ That doesn't look like a valid bot token.\nPlease check again from @BotFather.",
             reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
