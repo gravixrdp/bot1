@@ -265,7 +265,7 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("    traceback.print_exc()\\n")
         f.write("    sys.exit(1)\\n")
     with open(runner_py, "w") as f:
-        f.write("import os, runpy, sys, subprocess\n")
+        f.write("import os, runpy, sys, subprocess, threading, time\n")
         f.write("token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''\n")
         f.write("# Expose in env for libraries that read from environment\n")
         f.write("os.environ['BOT_TOKEN'] = token\n")
@@ -276,6 +276,15 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\n")
         f.write("# Ensure current working directory is the app root\n")
         f.write("os.chdir(os.path.dirname(__file__))\n")
+        f.write("# Heartbeat thread to confirm liveness in logs\n")
+        f.write("def _heartbeat():\n")
+        f.write("    while True:\n")
+        f.write("        try:\n")
+        f.write("            print('gravix_runner: heartbeat alive')\n")
+        f.write("        except Exception:\n")
+        f.write("            pass\n")
+        f.write("        time.sleep(30)\n")
+        f.write("threading.Thread(target=_heartbeat, daemon=True).start()\n")
         f.write("# Run the user's entry file in this process\n")
         f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\n")
         f.write("def _try_run():\n")
@@ -286,11 +295,12 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("    missing = getattr(e, 'name', None)\n")
         f.write("    if not missing and 'No module named' in str(e):\n")
         f.write("        try:\n")
-        f.write("            missing = str(e).split(\"'\")[1]\n")
+        f.write("            missing = str(e).split(\"'\\\")[1]\n")
         f.write("        except Exception:\n")
         f.write("            missing = None\n")
         f.write("    _MAP = {\n")
         f.write("        'telebot': 'pyTelegramBotAPI',\n")
+        f.write("        'telegram': 'python-telegram-bot',\n")
         f.write("        'PIL': 'pillow',\n")
         f.write("        'cv2': 'opencv-python',\n")
         f.write("        'bs4': 'beautifulsoup4',\n")
@@ -408,6 +418,16 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
             mem_limit=mem_limit,
             restart_policy={"Name": "unless-stopped"} if restart_policy_on else {"Name": "no"}
         )
+        # Ensure network exists if specified
+        if network:
+            try:
+                nets = client.networks.list(names=[network])
+                if not nets:
+                    client.networks.create(name=network)
+                    log_event(f"Created missing Docker network: {network}")
+            except Exception:
+                # Non-fatal: container will use default bridge if network not found/created
+                log_event(f"Could not verify/create network '{network}', proceeding with defaults.")
         create_kwargs = {
             "image": image_tag,
             "name": image_tag,
