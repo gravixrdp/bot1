@@ -15,6 +15,7 @@ from ..storage import log_event, get_settings
 # This helps when users write code like "import telebot" but the pip package is "pyTelegramBotAPI"
 _PYPI_MAP = {
     "telebot": "pyTelegramBotAPI",
+    "telegram": "python-telegram-bot",  # PTB provides 'telegram' module
     "PIL": "pillow",
     "cv2": "opencv-python",
     "dotenv": "python-dotenv",
@@ -192,7 +193,12 @@ def detect_requirements(workspace: str) -> List[str]:
                     base = re.split(r"[<>=!~ ]", s)[0].split(".")[0]
                     # Only include if its base matches an import we saw (or explicit mapping)
                     base_mapped = _PYPI_MAP.get(base, base)
-                    if base in import_names or (isinstance(base_mapped, str) and base_mapped in reqs) or s.lower().startswith("pytelegrambotapi"):  # allow explicit common packages
+                    if (
+                        base in import_names
+                        or (isinstance(base_mapped, str) and base_mapped in reqs)
+                        or s.lower().startswith("pytelegrambotapi")
+                        or s.lower().startswith("python-telegram-bot")
+                    ):  # allow explicit common packages
                         norm = _normalize_requirement(s)
                         if norm:
                             reqs.add(norm)
