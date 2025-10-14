@@ -708,7 +708,7 @@ async def cb_contact_admin(cb: CallbackQuery):
     await cb.answer()
 
 
-@router.message(ContactStates.chat, F.text == "⬅️ Back")
+@router.message(ContactStates.chat, F.text.in_(["⬅️ Back", "Back", "🔙 Back"]))
 async def contact_admin_back(message: Message, state: FSMContext):
     # Exit chat state without sending a message
     await state.clear()
@@ -728,7 +728,7 @@ async def contact_admin_forward(message: Message, state: FSMContext):
         await state.clear()
         return
     # If user presses Back while in chat, handle above; otherwise treat as a message
-    if message.text.strip() == "⬅️ Back":
+    if message.text.strip().lower() in {"⬅️ back", "back", "🔙 back"}:
         await contact_admin_back(message, state)
         return
     # Persist to admin inbox
