@@ -8,7 +8,7 @@ from typing import Optional, Tuple, List
 from docker import from_env as docker_from_env, errors as docker_errors
 
 from ..config import UPLOADS_DIR, RUNTIME_CPU_LIMIT, RUNTIME_MEM_LIMIT, RUNTIME_NETWORK
-from ..storage import log_event
+from ..storage import log_event, get_settings
 
 
 # Map common import names to their PyPI package equivalents
@@ -269,10 +269,19 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
         client.images.build(path=workspace, tag=image_tag, rm=True)
         # Run with resource limits
         env = {"TELEGRAM_TOKEN": token}
+        # Load dynamic settings overrides
+        settings = get_settings()
+        try:
+            cpu_limit = float(settings.get("cpu_limit", RUNTIME_CPU_LIMIT))
+        except Exception:
+            cpu_limit = float(RUNTIME_CPU_LIMIT)
+        mem_limit = str(settings.get("mem_limit", RUNTIME_MEM_LIMIT))
+        restart_policy_on = (str(settings.get("restart_policy", "on")).lower() == "on")
+        network = settings.get("network", RUNTIME_NETWORK)
         host_cfg = client.api.create_host_config(
-            nano_cpus=int(float(RUNTIME_CPU_LIMIT) * 1e9),
-            mem_limit=RUNTIME_MEM_LIMIT,
-            restart_policy={"Name": "unless-stopped"}
+            nano_cpus=int(cpu_limit * 1e9),
+            mem_limit=mem_limit,
+            restart_policy={"Name": "unless-stopped"} if restart_policy_on else {"Name": "no"}
         )
         create_kwargs = {
             "image": image_tag,
@@ -280,8 +289,8 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
             "environment": env,
             "host_config": host_cfg,
         }
-        if RUNTIME_NETWORK:
-            create_kwargs["network"] = RUNTIME_NETWORK
+        if network:
+            create_kwargs["network"] = network
         container = client.api.create_container(**create_kwargs)
         client.api.start(container=container.get("Id"))
         runtime_id = container.get("Id")
@@ -342,6 +351,26 @@ def remove_workspace(workspace: str):
         shutil.rmtree(workspace, ignore_errors=True)
     except Exception:
         pass
+
+
+def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
+    """
+    Fetch recent logs from a Docker container.
+    Returns a string or None if not available.
+    """
+    try:
+        if runtime_id.startswith("proc:"):
+            return None
+        client = docker_from_env()
+        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
+        if isinstance(logs, (bytes, bytearray)):
+            try:
+                return logs.decode("utf-8", errors="replace")
+            except Exception:
+                return logs.decode("latin1", errors="replace")
+        return str(logs)
+    except Exception:
+        return None
 
 
 def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
