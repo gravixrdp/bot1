@@ -124,6 +124,7 @@ async def _start_host_flow(message: Message, state: FSMContext):
     await state.update_data(pending=PendingHost().__dict__)
     await message.answer(
         "🚀 Let's get your bot online!\nPlease upload your bot file (like " + code("bot.py") + " or a .zip containing your bot code).",
+        reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
         parse_mode=ParseMode.HTML,
     )
 
@@ -134,7 +135,11 @@ async def handle_upload(message: Message, state: FSMContext):
     filename = doc.file_name or "upload"
     # Validate extension
     if not (filename.endswith(".py") or filename.endswith(".zip")):
-        await message.answer("⚠️ File type not supported.\nPlease upload a .py file or .zip archive.", parse_mode=ParseMode.HTML)
+        await message.answer(
+            "⚠️ File type not supported.\nPlease upload a .py file or .zip archive.",
+            reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
+            parse_mode=ParseMode.HTML,
+        )
         return
     user_id = message.from_user.id
     # Create a bot record (temporary)
@@ -150,6 +155,7 @@ async def handle_upload(message: Message, state: FSMContext):
 
     await message.answer(
         "🔐 Please send your bot token (e.g. " + code("123456:ABC-DEF...") + ")",
+        reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
         parse_mode=ParseMode.HTML,
     )
     await state.set_state(HostStates.waiting_token)
@@ -157,14 +163,22 @@ async def handle_upload(message: Message, state: FSMContext):
 
 @router.message(HostStates.waiting_file)
 async def upload_error(message: Message):
-    await message.answer("⚠️ File type not supported.\nPlease upload a .py file or .zip archive.", parse_mode=ParseMode.HTML)
+    await message.answer(
+        "⚠️ File type not supported.\nPlease upload a .py file or .zip archive.",
+        reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(HostStates.waiting_token)
 async def handle_token(message: Message, state: FSMContext):
     token = message.text.strip()
     if not is_valid_token(token):
-        await message.answer("❌ That doesn't look like a valid bot token.\nPlease check again from @BotFather.", parse_mode=ParseMode.HTML)
+        await message.answer(
+            "❌ That doesn't look like a valid bot token.\nPlease check again from @BotFather.",
+            reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     user = get_user(message.from_user.id)
@@ -174,6 +188,7 @@ async def handle_token(message: Message, state: FSMContext):
     if not can_host_more(message.from_user.id):
         await message.answer(
             "⚠️ You already have one active hosted bot.\nFree users can only host 1 bot for 1 hour.\nStop or wait for it to expire, or upgrade to premium 💎.",
+            reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
             parse_mode=ParseMode.HTML,
         )
         # Cleanup workspace
@@ -183,11 +198,12 @@ async def handle_token(message: Message, state: FSMContext):
         return
 
     # Build and deploy
-    await message.answer("🔧 Setting up your hosting environment...", parse_mode=ParseMode.HTML)
+    await message.answer("🔧 Setting up your hosting environment...", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
     ok, runtime_id, err = build_and_run(message.from_user.id, pending.bot_record_id, token, pending.workspace)
     if not ok:
         await message.answer(
             "⚠️ Oops! Something went wrong while setting up your bot.\nPlease double-check your code or try again later.\nTip: Make sure your main file is named bot.py and uses valid Python imports.",
+            reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
             parse_mode=ParseMode.HTML,
         )
         await state.clear()
@@ -202,6 +218,7 @@ async def handle_token(message: Message, state: FSMContext):
         f"• ID: {code(pending.bot_record_id)}\n"
         f"• Host Time: {'Unlimited (Premium Plan)' if plan == 'premium' else '1 Hour (Free Plan)'}\n"
         "Use /stop to end early.",
+        reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
         parse_mode=ParseMode.HTML,
     )
     await state.clear()
@@ -212,7 +229,7 @@ async def cmd_stop(message: Message):
     # Stop user's active bot(s)
     active = get_active_bots(message.from_user.id)
     if not active:
-        await message.answer("ℹ️ No active hosted bots.", parse_mode=ParseMode.HTML)
+        await message.answer("ℹ️ No active hosted bots.", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
         return
     from .services.hoster import stop_runtime
     stopped_any = False
@@ -223,9 +240,9 @@ async def cmd_stop(message: Message):
         mark_stopped(b["id"])
         stopped_any = True
     if stopped_any:
-        await message.answer("🛑 Your hosted bot has been stopped.", parse_mode=ParseMode.HTML)
+        await message.answer("🛑 Your hosted bot has been stopped.", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
     else:
-        await message.answer("⚙️ Internal error occurred while processing your request.\nDon't worry — our system automatically handles this.\nPlease retry in a few minutes.", parse_mode=ParseMode.HTML)
+        await message.answer("⚙️ Internal error occurred while processing your request.\nDon't worry — our system automatically handles this.\nPlease retry in a few minutes.", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "my_info")

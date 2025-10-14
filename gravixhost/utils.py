@@ -26,6 +26,7 @@ def human_dt(dt: Optional[datetime]) -> str:
 
 
 def is_valid_token(token: str) -> bool:
-    # Basic BotFather token format validation
+    # More permissive BotFather token format validation
+    # Pattern: <digits>:<alphanumeric/underscore/hyphen>, variable length
     import re
-    return bool(re.match(r"^\\d+:[A-Za-z0-9_-]{30,}$", token))
+    return bool(re.match(r"^\\d+:[A-Za-z0-9_-]+$", token))
