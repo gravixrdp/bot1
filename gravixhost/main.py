@@ -13,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from .config import MASTER_BOT_TOKEN, APP_NAME
-from .keyboards import main_menu
+from .keyboards import main_menu, support_url_kb
 from .utils import bold, code, human_dt, is_valid_token
 from .storage import (
     get_user,
@@ -138,6 +138,15 @@ async def on_upgrade_btn(message: Message):
 @router.message(F.text == "👤 My Info")
 async def on_my_info_btn(message: Message):
     await cmd_myinfo(message)
+
+
+@router.message(F.text == "🆘 Support")
+async def on_support(message: Message):
+    await message.answer(
+        "Support ke liye niche button par click karein:",
+        reply_markup=support_url_kb(),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(F.text == "⚙️ Manage My Bots")

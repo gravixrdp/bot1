@@ -14,6 +14,7 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
             [KeyboardButton(text="⚙️ Manage My Bots")],
             [KeyboardButton(text="📘 How it Works")],
             [KeyboardButton(text="💬 Contact Admin")],
+            [KeyboardButton(text="🆘 Support")],
             [KeyboardButton(text="👤 My Info")],
             [KeyboardButton(text="🏠 Main Menu")],
         ]
@@ -22,6 +23,7 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📦 Host My Bot")],
             [KeyboardButton(text="ℹ️ How it Works")],
             [KeyboardButton(text="💰 Upgrade to Premium")],
+            [KeyboardButton(text="🆘 Support")],
             [KeyboardButton(text="👤 My Info")],
             [KeyboardButton(text="🏠 Main Menu")],
         ]
@@ -43,3 +45,11 @@ def admin_fixed_bar() -> InlineKeyboardMarkup:
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def support_url_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Open Support Chat", url="https://t.me/Dravonnbot")]
+        ]
+    )
