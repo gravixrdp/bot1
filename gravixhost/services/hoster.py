@@ -13,6 +13,7 @@ from docker import from_env as docker_from_env, errors as docker_errors
 
 from ..config import UPLOADS_DIR, RUNTIME_CPU_LIMIT, RUNTIME_MEM_LIMIT, RUNTIME_NETWORK
 from ..storage import log_event, get_settings
+from .ai_assistant import suggest_fix
 
 # Defaults aligned with requested hosting flow
 DEFAULT_BASE_IMAGE = "python:3.11-slim"
