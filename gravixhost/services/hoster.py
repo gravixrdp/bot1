@@ -208,6 +208,8 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
     with open(runner, "w") as f:
         f.write("#!/usr/bin/env bash\n")
         f.write("set -e\n")
+        # Export both TELEGRAM_TOKEN and BOT_TOKEN for compatibility
+        f.write("export BOT_TOKEN=\"$TELEGRAM_TOKEN\"\n")
         f.write("python " + entry_file + "\n")
     os.chmod(runner, 0o755)
 
@@ -223,6 +225,8 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("FROM python:3.11-slim\n")
         f.write("WORKDIR /app\n")
         f.write("COPY . /app\n")
+        # Basic system deps that frequently help builds (kept minimal)
+        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\n")
         f.write("RUN pip install --no-cache-dir --upgrade pip\n")
         # Prefer installing autodetected requirements first (clean set)
         if req_auto_path:
