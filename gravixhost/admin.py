@@ -30,7 +30,7 @@ async def admin_entry(message: Message):
     await message.answer(
         "🛡️ Admin Panel",
         reply_markup=admin_fixed_bar(),
-        parse_mode=ParseMode.MARKDOWN_V2,
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -47,7 +47,7 @@ async def admin_users(cb: CallbackQuery):
             f"Status: {'Premium' if u.get('is_premium') else 'Free'} — "
             f"Expiry: {human_dt(_safe_parse(u.get('premium_expiry')))}"
         )
-    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.MARKDOWN_V2)
+    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
@@ -68,7 +68,7 @@ async def admin_premium(cb: CallbackQuery):
     await cb.message.answer(
         "💎 Premium Controls\nSend: " + code("premium <user_id> <days>") + " or " + code("unpremium <user_id>"),
         reply_markup=admin_fixed_bar(),
-        parse_mode=ParseMode.MARKDOWN_V2,
+        parse_mode=ParseMode.HTML,
     )
     await cb.answer()
 
@@ -81,7 +81,7 @@ async def premium_set(message: Message):
     user_id = int(parts[1])
     days = int(parts[2])
     set_premium(user_id, days)
-    await message.answer(f"✅ Premium set for {code(str(user_id))} for {days} days.", parse_mode=ParseMode.MARKDOWN_V2)
+    await message.answer(f"✅ Premium set for {code(str(user_id))} for {days} days.", parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text.regexp(r"^unpremium\s+\d+$"))
@@ -91,7 +91,7 @@ async def premium_remove(message: Message):
     parts = message.text.strip().split()
     user_id = int(parts[1])
     remove_premium(user_id)
-    await message.answer(f"✅ Premium removed for {code(str(user_id))}.", parse_mode=ParseMode.MARKDOWN_V2)
+    await message.answer(f"✅ Premium removed for {code(str(user_id))}.", parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "admin_apps")
@@ -105,8 +105,8 @@ async def admin_apps(cb: CallbackQuery):
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append("\nAdmin commands:\n`stopbot <id>` `restartbot <id>` `removebot <id>`")
-    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.MARKDOWN_V2)
+    text.append("\nAdmin commands:\n<code>stopbot &lt;id&gt;</code> <code>restartbot &lt;id&gt;</code> <code>removebot &lt;id&gt;</code>")
+    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
@@ -117,7 +117,7 @@ async def admin_logs(cb: CallbackQuery):
     db = _read_db()
     logs = db["logs"][-30:]
     text = ["🧾 Logs (last 30)", *[f"• {l['time']} — {l['event']}" for l in logs]]
-    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.MARKDOWN_V2)
+    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
@@ -136,7 +136,7 @@ async def admin_stopbot(message: Message):
     if rid:
         stop_runtime(rid)
     mark_stopped(bot_id)
-    await message.answer(f"🛑 Stopped {code(bot_id)}", parse_mode=ParseMode.MARKDOWN_V2)
+    await message.answer(f"🛑 Stopped {code(bot_id)}", parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text.regexp(r"^restartbot\s+\S+$"))
@@ -152,7 +152,7 @@ async def admin_restartbot(message: Message):
         return
     rid = b.get("runtime_id")
     if rid and restart_runtime(rid):
-        await message.answer(f"♻️ Restarted {code(bot_id)}", parse_mode=ParseMode.MARKDOWN_V2)
+        await message.answer(f"♻️ Restarted {code(bot_id)}", parse_mode=ParseMode.HTML)
     else:
         await message.answer("Failed to restart.")
 
@@ -177,7 +177,7 @@ async def admin_removebot(message: Message):
     if b.get("path"):
         remove_workspace(b["path"])
     delete_bot(bot_id)
-    await message.answer(f"🗑️ Removed {code(bot_id)}", parse_mode=ParseMode.MARKDOWN_V2)
+    await message.answer(f"🗑️ Removed {code(bot_id)}", parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "admin_settings")
@@ -187,6 +187,6 @@ async def admin_settings(cb: CallbackQuery):
     await cb.message.answer(
         "⚙️ Settings\nFree hosting time: 1 Hour\nRestart policy: Enabled\nUse commands to adjust.",
         reply_markup=admin_fixed_bar(),
-        parse_mode=ParseMode.MARKDOWN_V2,
+        parse_mode=ParseMode.HTML,
     )
     await cb.answer()

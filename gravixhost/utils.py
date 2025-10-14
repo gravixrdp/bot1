@@ -3,39 +3,20 @@ from typing import Optional
 
 
 def bold(text: str) -> str:
-    return f"*{escape(text)}*"
+    return f"<b>{escape(text)}</b>"
 
 
 def code(text: str) -> str:
-    return f"`{escape(text)}`"
+    return f"<code>{escape(text)}</code>"
 
 
 def escape(text: str) -> str:
-    # Minimal escape for MarkdownV2
-    replacements = {
-        "_": "\\_",
-        "*": "\\*",
-        "[": "\\[",
-        "]": "\\]",
-        "(": "\\(",
-        ")": "\\)",
-        "~": "\\~",
-        "`": "\\`",
-        "<": "\\<",
-        ">": "\\>",
-        "#": "\\#",
-        "+": "\\+",
-        "-": "\\-",
-        "=": "\\=",
-        "|": "\\|",
-        "{": "\\{",
-        "}": "\\}",
-        ".": "\\.",
-        "!": "\\!",
-    }
-    for k, v in replacements.items():
-        text = text.replace(k, v)
-    return text
+    # Minimal escape for HTML
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 def human_dt(dt: Optional[datetime]) -> str:
@@ -45,6 +26,7 @@ def human_dt(dt: Optional[datetime]) -> str:
 
 
 def is_valid_token(token: str) -> bool:
-    # Basic BotFather token format validation
+    # More permissive BotFather token format validation
+    # Pattern: <digits>:<alphanumeric/underscore/hyphen>, variable length
     import re
-    return bool(re.match(r"^\\d+:[A-Za-z0-9_-]{30,}$", token))
+    return bool(re.match(r"^\\d+:[A-Za-z0-9_-]+$", token))
