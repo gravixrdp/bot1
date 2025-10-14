@@ -21,12 +21,24 @@ def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
     else:
         rows = [
             [KeyboardButton(text="📦 Host My Bot")],
+            [KeyboardButton(text="⚙️ Manage My Bots")],
             [KeyboardButton(text="ℹ️ How it Works")],
             [KeyboardButton(text="💰 Upgrade to Premium")],
             [KeyboardButton(text="🆘 Support")],
             [KeyboardButton(text="👤 My Info")],
             [KeyboardButton(text="🏠 Main Menu")],
         ]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
+
+
+# User "Manage My Bots" persistent menu
+def user_manage_menu() -> ReplyKeyboardMarkup:
+    rows = [
+        [KeyboardButton(text="🔍 My Running Bots")],
+        [KeyboardButton(text="🛑 Stop My Bot"), KeyboardButton(text="♻️ Restart My Bot")],
+        [KeyboardButton(text="🧾 My Logs")],
+        [KeyboardButton(text="🏠 Main Menu")],
+    ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
