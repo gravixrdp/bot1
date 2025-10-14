@@ -53,32 +53,50 @@ def normalize_token(text: Optional[str]) -> Optional[str]:
     """
     Extract and normalize a Telegram bot token from arbitrary user input.
 
-    Examples handled:
-    - "123456:ABC-DEF..." (plain token)
-    - "TOKEN = '123456:ABC-DEF...'"
-    - "BOT_TOKEN=123456:ABC-DEF..."
-    - "Here is my token: 123456:ABC-DEF..."
-    - Quotes, spaces, newlines around the token
+    More robust handling for:
+    - Plain token like "123456:ABC-DEF..."
+    - KEY=VALUE or KEY: VALUE formats (e.g., TOKEN='123456:...') or "token: 123456:..."
+    - Extra spaces/newlines around or within the token (e.g., "123456 : ABC-DEF...")
+    - Unicode variants of colon (e.g., '：' fullwidth colon) and zero-width characters
+    - Code fences/backticks or quotes around the token
     """
     if not text:
         return None
-    s = str(text).strip()
+    s = str(text)
 
-    # If it looks like KEY=VALUE, peel off VALUE
-    if "=" in s and not s.strip().startswith(("http://", "https://")):
-        # keep right-hand side only
-        rhs = s.split("=", 1)[1].strip()
-        s = rhs
+    # Normalize unicode (convert fullwidth characters to ASCII forms)
+    try:
+        import unicodedata
+        s = unicodedata.normalize("NFKC", s)
+    except Exception:
+        pass
 
-    # Remove surrounding quotes if present
-    s = s.strip().strip("'\"").strip()
+    # Remove zero-width and control characters that can appear when copying from chats
+    s = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]", "", s)
 
-    # Search for the token pattern anywhere in the string
-    m = re.search(r"(\d+:[A-Za-z0-9_-]{10,})", s)
+    # Strip common wrappers
+    s = s.strip().strip("` \n\t\r").strip("'\"").strip()
+
+    # If the user sent KEY=VALUE or KEY: VALUE, prefer right-hand side
+    if (("=" in s or ":" in s) and not s.strip().startswith(("http://", "https://"))):
+        parts = None
+        # Try split on '=' first
+        if "=" in s:
+            parts = s.split("=", 1)
+        else:
+            # Only split on the first colon if the left side looks like a key (non-digit)
+            left, sep, right = s.partition(":")
+            if sep and not left.strip().isdigit():
+                parts = [left, right]
+        if parts and len(parts) == 2:
+            s = parts[1].strip().strip("'\"").strip()
+
+    # Try to find token allowing spaces around colon
+    m = re.search(r"(\d+)\s*:\s*([A-Za-z0-9_-]{10,})", s)
     if m:
-        return m.group(1).strip()
+        return f"{m.group(1)}:{m.group(2)}".strip()
 
-    # If entire string might be the token but has extra spaces
+    # Remove all whitespace and try again (handles split over lines)
     s2 = re.sub(r"\s+", "", s)
     m2 = re.search(r"(\d+:[A-Za-z0-9_-]{10,})", s2)
     if m2:
