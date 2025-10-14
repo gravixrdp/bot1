@@ -38,6 +38,7 @@ def user_manage_menu() -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="🔍 My Running Bots")],
         [KeyboardButton(text="🛑 Stop My Bot"), KeyboardButton(text="♻️ Restart My Bot")],
+        [KeyboardButton(text="🗑️ Remove My Bot"), KeyboardButton(text="📜 Bot Logs")],
         [KeyboardButton(text="🧾 My Logs")],
         [KeyboardButton(text="🏠 Main Menu")],
     ]
