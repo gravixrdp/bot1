@@ -57,11 +57,18 @@ def admin_menu() -> ReplyKeyboardMarkup:
         KeyboardButton(text="👥 Users"),
         KeyboardButton(text="💎 Premium"),
         KeyboardButton(text="📦 Apps"),
+        KeyboardButton(text="💬 Inbox"),
         KeyboardButton(text="🧾 Logs"),
         KeyboardButton(text="🗑️ Clear Admin Logs"),
         KeyboardButton(text="⚙️ Settings"),
         KeyboardButton(text="🏠 Main Menu"),
     ]]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
+
+
+def contact_chat_menu() -> ReplyKeyboardMarkup:
+    # Minimal chat UI for contacting admin
+    rows = [[KeyboardButton(text="⬅️ Back")]]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 

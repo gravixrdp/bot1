@@ -10,7 +10,7 @@ def _ensure_dirs():
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(DB_PATH):
         with open(DB_PATH, "w") as f:
-            json.dump({"users": {}, "bots": {}, "logs": []}, f)
+            json.dump({"users": {}, "bots": {}, "logs": [], "messages": []}, f)
 
 
 _ensure_dirs()
@@ -18,7 +18,13 @@ _ensure_dirs()
 
 def _read_db() -> Dict[str, Any]:
     with open(DB_PATH, "r") as f:
-        return json.load(f)
+        db = json.load(f)
+    # Ensure keys exist
+    db.setdefault("users", {})
+    db.setdefault("bots", {})
+    db.setdefault("logs", [])
+    db.setdefault("messages", [])
+    return db
 
 
 def _write_db(db: Dict[str, Any]):
@@ -80,6 +86,11 @@ def clear_admin_logs():
         return
     db["logs"] = [e for e in logs if e.get("scope", "user") != "admin"]
     _write_db(db)
+
+
+def add_message(user_id: int, text: str):
+    """
+    Store a)
 
 
 # Users

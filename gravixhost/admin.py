@@ -71,6 +71,24 @@ async def admin_premium_msg(message: Message):
         parse_mode=ParseMode.HTML,
     )
 
+@router.message(F.text == "💬 Inbox")
+async def admin_inbox(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    from .storage import get_messages
+    msgs = get_messages(limit=50)
+    if not msgs:
+        await message.answer(bold("💬 Inbox") + "\nNo messages yet.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+        return
+    # Build readable list
+    lines = [bold("💬 Inbox (last 50)")]
+    for m in msgs:
+        from_user = get_user(int(m["user_id"]))
+        name = from_user.get("name") or "Unknown"
+        lines.append(f"• {m['time']} — {bold(name)} ({code(str(m['user_id']))})")
+        lines.append(f"  {escape(m['text'])}")
+    await message.answer("\n".join(lines), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
 
 @router.message(F.text == "📦 Apps")
 async def admin_apps_msg(message: Message):

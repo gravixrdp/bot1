@@ -44,6 +44,10 @@ class HostStates(StatesGroup):
     waiting_token = State()
 
 
+class ContactStates(StatesGroup):
+    chat = State()
+
+
 router = Router(name="user")
 
 
@@ -483,14 +487,16 @@ async def on_main_menu(message: Message):
 
 
 @router.message(F.text == "💬 Contact Admin")
-async def on_contact_admin(message: Message):
+async def on_contact_admin(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user.get("is_premium"):
         await message.answer("This feature is available for premium users only.", parse_mode=ParseMode.HTML)
         return
+    from .keyboards import contact_chat_menu
+    await state.set_state(ContactStates.chat)
     await message.answer(
-        "💬 Contact Admin\nSend a message starting with " + code("admin:") + " and we'll forward it to the admin.",
-        reply_markup=main_menu(True),
+        bold("💬 Contact Admin") + "\nType your message below. We'll forward it to the admin.",
+        reply_markup=contact_chat_menu(),
         parse_mode=ParseMode.HTML,
     )
 
@@ -660,12 +666,12 @@ async def cb_contact_admin(cb: CallbackQuery):
     await cb.answer()
 
 
-@router.message(F.text.startswith("admin:"))
-async def forward_to_admin(message: Message):
+@router.message(ContactStates.chat, F.text)
+async def contact_admin_forward(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user.get("is_premium"):
-        return
-    from .config import ADMIN_TELEGRAM_ID
+        await state.clear()
+AM_ID
     if not ADMIN_TELEGRAM_ID:
         await message.answer("Admin is not configured.", parse_mode=ParseMode.HTML)
         return
