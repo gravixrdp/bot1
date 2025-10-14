@@ -263,12 +263,24 @@ async def admin_logsbot(message: Message):
         ev = entry.get("event", "")
         if bot_id in ev:
             logs.append(f"• {entry.get('time','')} — {ev}")
-        if len(logs) >= 30:
+        if len(logs) >= 100:
             break
     if not logs:
         await message.answer(bold("No logs for this bot."), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
         return
-    await message.answer(bold("🧾 Bot Logs (last 30)") + "\n" + "\n".join(logs), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+    # Chunked send
+    header = bold("🧾 Bot Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 # Keep callback-based handlers for backward compatibility (not used by the new UI)

@@ -271,12 +271,24 @@ async def my_logs(message: Message):
         ev = entry.get("event", "")
         if any(bid in ev for bid in my_ids) or str(message.from_user.id) in ev:
             logs.append(f"• {entry.get('time','')} — {ev}")
-        if len(logs) >= 20:
+        if len(logs) >= 50:
             break
     if not logs:
         await message.answer(bold("No logs yet."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    await message.answer(bold("🧾 Your Logs (last 20)") + "\n" + "\n".join(logs), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    # Split into safe chunks to avoid Telegram message length limit (~4096 chars)
+    header = bold("🧾 Your Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🗑️ Remove My Bot")
@@ -393,12 +405,24 @@ async def user_logs_bot(message: Message):
         ev = entry.get("event", "")
         if bot_id in ev:
             logs.append(f"• {entry.get('time','')} — {ev}")
-        if len(logs) >= 30:
+        if len(logs) >= 50:
             break
     if not logs:
         await message.answer(bold("No logs for this bot."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    await message.answer(bold("🧾 Bot Logs (last 30)") + "\n" + "\n".join(logs), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    # Chunked send
+    header = bold("🧾 Bot Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")

@@ -110,7 +110,7 @@ def detect_requirements(workspace: str) -> List[str]:
     # Parse .py files for imports
     def parse_imports(py_path: str):
         try:
-            with open(py_path, "r", encoding="utf-8") as f:
+            with open(py_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     line = line.strip()
                     if line.startswith("import ") or line.startswith("from "):
