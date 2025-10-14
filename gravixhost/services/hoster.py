@@ -220,6 +220,7 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
         f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\n")
         f.write("# Ensure current working directory is the app root\n")
         f.write("os.chdir(os.path.dirname(__file__))\n")
+        f.write("# Run the user's entry file in this process\n")
         f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\n")
         f.write("def _try_run():\n")
         f.write("    runpy.run_path('" + entry_file + "', init_globals=init_globals)\n")
