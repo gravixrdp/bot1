@@ -3,12 +3,24 @@ import shutil
 import subprocess
 import sys
 import signal
+import ast
+import re
+import tempfile
+import time
 from typing import Optional, Tuple, List
 
 from docker import from_env as docker_from_env, errors as docker_errors
 
 from ..config import UPLOADS_DIR, RUNTIME_CPU_LIMIT, RUNTIME_MEM_LIMIT, RUNTIME_NETWORK
 from ..storage import log_event, get_settings
+
+# Defaults aligned with requested hosting flow
+DEFAULT_BASE_IMAGE = "python:3.11-slim"
+AIOGRAM_V2_IMAGE = "python:3.9-slim"
+DEFAULT_CPU_QUOTA = 100000           # 100% CPU
+DEFAULT_MEM_LIMIT = "512m"
+DEFAULT_PIDS_LIMIT = 100
+BUILD_TIMEOUT_SECS = 300
 
 
 # Map common import names to their PyPI package equivalents
@@ -136,14 +148,59 @@ def _normalize_requirement(name: str) -> Optional[str]:
     return mapped
 
 
+def detect_framework(code: str) -> Tuple[str, str]:
+    """
+    Detect common Telegram bot frameworks from code and try to discover token var name.
+    Returns (framework_key, token_var_name)
+    """
+    framework, token_var = "unknown", "TOKEN"
+    try:
+        tree = ast.parse(code)
+        imports = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.add(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module.split(".")[0])
+        if "aiogram" in imports:
+            framework = "aiogram_v2" if "executor.start_polling" in code else "aiogram_v3"
+        elif "telebot" in imports:
+            framework = "pytelegrambotapi"
+        elif "telegram" in imports:
+            framework = "python-telegram-bot"
+        elif "pyrogram" in imports:
+            framework = "pyrogram"
+    except Exception:
+        pass
+
+    for pattern in [
+        r'([a-zA-Z_]\w*)\s*=\s*["\']([0-9]+:[a-zA-Z0-9_-]+)["\']',
+        r'([a-zA-Z_]\w*)\s*=\s*os\.getenv',
+    ]:
+        m = re.search(pattern, code)
+        if m:
+            token_var = m.group(1)
+            break
+    return framework, token_var
+
+
+def guess_requirements(framework: str) -> List[str]:
+    fmap = {
+        "aiogram_v2": "aiogram<3.0",
+        "aiogram_v3": "aiogram>=3.0",
+        "pytelegrambotapi": "pyTelegramBotAPI",
+        "python-telegram-bot": "python-telegram-bot",
+        "pyrogram": "pyrogram",
+    }
+    return [fmap[framework]] if framework in fmap else []
+
+
 def detect_requirements(workspace: str) -> List[str]:
     """
     Detect dependencies by parsing Python files with AST for import statements.
     Optionally include filtered requirements from requirements.txt that match actual imports.
     """
-    import ast
-    import re
-
     import_names = set()
 
     def collect_imports(py_path: str):
@@ -247,7 +304,7 @@ try:
 except ModuleNotFoundError as e:
     missing = getattr(e, 'name', None)
     if not missing and 'No module named' in str(e):
-        m = re.search(r"No module named ['\\"]([^'\\"]+)['\\"]", str(e))
+        m = re.search(r"No module named ['\\\"]([^'\\\"]+)['\\\"]", str(e))
         if m:
             missing = m.group(1)
     _MAP = {{
@@ -336,124 +393,79 @@ except Exception:
 
     # Python runner: injects token into globals so common patterns like BOT_TOKEN/TOKEN work
     runner_py = os.path.join(workspace, "gravix_runner.py")
+    runner_code = f"""import os, runpy, sys, subprocess, threading, time, re
+
+token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''
+# Expose in env for libraries that read from environment
+os.environ['BOT_TOKEN'] = token
+os.environ['TELEGRAM_TOKEN'] = token
+os.environ['TOKEN'] = token
+os.environ['TELEGRAM_BOT_TOKEN'] = token
+# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly
+init_globals = {{'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}}
+# Ensure current working directory is the app root
+os.chdir(os.path.dirname(__file__))
+
+# Heartbeat thread to confirm liveness in logs
+def _heartbeat():
+    while True:
+        try:
+            print('gravix_runner: heartbeat alive')
+        except Exception:
+            pass
+        time.sleep(30)
+threading.Thread(target=_heartbeat, daemon=True).start()
+
+# Run the user's entry file in this process
+print('gravix_runner: entry={entry_file} token_len=%d' % (len(token)))
+def _try_run():
+    runpy.run_path('{entry_file}', init_globals=init_globals)
+
+try:
+    _try_run()
+except ModuleNotFoundError as e:
+    missing = getattr(e, 'name', None)
+    if not missing and 'No module named' in str(e):
+        m = re.search(r"No module named ['\\\"]([^'\\\"]+)['\\\"]", str(e))
+        if m:
+            missing = m.group(1)
+    _MAP = {{
+        'telebot': 'pyTelegramBotAPI',
+        'telegram': 'python-telegram-bot',
+        'PIL': 'pillow',
+        'cv2': 'opencv-python',
+        'bs4': 'beautifulsoup4',
+        'yaml': 'pyyaml',
+        'Crypto': 'pycryptodome',
+        'OpenSSL': 'pyOpenSSL',
+    }}
+    pkg = _MAP.get(missing)
+    if pkg:
+        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))
+        try:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
+            _try_run()
+        except Exception:
+            import traceback; traceback.print_exc(); sys.exit(1)
+    else:
+        raise
+except SystemExit:
+    raise
+except Exception:
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+"""
     with open(runner_py, "w") as f:
-        f.write("import os, runpy, sys, subprocess\\n")
-        f.write("token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''\\n")
-        f.write("# Expose in env for libraries that read from environment\\n")
-        f.write("os.environ['BOT_TOKEN'] = token\\n")
-        f.write("os.environ['TELEGRAM_TOKEN'] = token\\n")
-        f.write("os.environ['TOKEN'] = token\\n")
-        f.write("os.environ['TELEGRAM_BOT_TOKEN'] = token\\n")
-        f.write("# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly\\n")
-        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\\n")
-        f.write("# Ensure current working directory is the app root\\n")
-        f.write("os.chdir(os.path.dirname(__file__))\\n")
-        f.write("# Run the user's entry file in this process\\n")
-        f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\\n")
-        f.write("def _try_run():\\n")
-        f.write("    runpy.run_path('" + entry_file + "', init_globals=init_globals)\\n")
-        f.write("try:\\n")
-        f.write("    _try_run()\\n")
-        f.write("except ModuleNotFoundError as e:\\n")
-        f.write("    missing = getattr(e, 'name', None)\\n")
-        f.write("    if not missing and 'No module named' in str(e):\\n")
-        f.write("        try:\\n")
-        f.write("            missing = str(e).split(\"'\\\")[1]\\n")
-        f.write("        except Exception:\\n")
-        f.write("            missing = None\\n")
-        f.write("    _MAP = {\\n")
-        f.write("        'telebot': 'pyTelegramBotAPI',\\n")
-        f.write("        'PIL': 'pillow',\\n")
-        f.write("        'cv2': 'opencv-python',\\n")
-        f.write("        'bs4': 'beautifulsoup4',\\n")
-        f.write("        'yaml': 'pyyaml',\\n")
-        f.write("        'Crypto': 'pycryptodome',\\n")
-        f.write("        'OpenSSL': 'pyOpenSSL',\\n")
-        f.write("    }\\n")
-        f.write("    pkg = _MAP.get(missing)\\n")
-        f.write("    if pkg:\\n")
-        f.write("        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))\\n")
-        f.write("        try:\\n")
-        f.write("            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])\\n")
-        f.write("            _try_run()\\n")
-        f.write("        except Exception:\\n")
-        f.write("            import traceback; traceback.print_exc(); sys.exit(1)\\n")
-        f.write("    else:\\n")
-        f.write("        raise\\n")
-        f.write("except SystemExit:\\n")
-        f.write("    raise\\n")
-        f.write("except Exception:\\n")
-        f.write("    import traceback\\n")
-        f.write("    traceback.print_exc()\\n")
-        f.write("    sys.exit(1)\\n")
-    with open(runner_py, "w") as f:
-        f.write("import os, runpy, sys, subprocess, threading, time\n")
-        f.write("token = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN') or ''\n")
-        f.write("# Expose in env for libraries that read from environment\n")
-        f.write("os.environ['BOT_TOKEN'] = token\n")
-        f.write("os.environ['TELEGRAM_TOKEN'] = token\n")
-        f.write("os.environ['TOKEN'] = token\n")
-        f.write("os.environ['TELEGRAM_BOT_TOKEN'] = token\n")
-        f.write("# Prepare globals so user code can reference BOT_TOKEN or TOKEN directly\n")
-        f.write("init_globals = {'BOT_TOKEN': token, 'TOKEN': token, 'TELEGRAM_TOKEN': token}\n")
-        f.write("# Ensure current working directory is the app root\n")
-        f.write("os.chdir(os.path.dirname(__file__))\n")
-        f.write("# Heartbeat thread to confirm liveness in logs\n")
-        f.write("def _heartbeat():\n")
-        f.write("    while True:\n")
-        f.write("        try:\n")
-        f.write("            print('gravix_runner: heartbeat alive')\n")
-        f.write("        except Exception:\n")
-        f.write("            pass\n")
-        f.write("        time.sleep(30)\n")
-        f.write("threading.Thread(target=_heartbeat, daemon=True).start()\n")
-        f.write("# Run the user's entry file in this process\n")
-        f.write("print('gravix_runner: entry=%s token_len=%d' % ('" + entry_file + "', len(token)))\n")
-        f.write("def _try_run():\n")
-        f.write("    runpy.run_path('" + entry_file + "', init_globals=init_globals)\n")
-        f.write("try:\n")
-        f.write("    _try_run()\n")
-        f.write("except ModuleNotFoundError as e:\n")
-        f.write("    missing = getattr(e, 'name', None)\n")
-        f.write("    if not missing and 'No module named' in str(e):\n")
-        f.write("        try:\n")
-        f.write("            missing = str(e).split(\"'\\\")[1]\n")
-        f.write("        except Exception:\n")
-        f.write("            missing = None\n")
-        f.write("    _MAP = {\n")
-        f.write("        'telebot': 'pyTelegramBotAPI',\n")
-        f.write("        'telegram': 'python-telegram-bot',\n")
-        f.write("        'PIL': 'pillow',\n")
-        f.write("        'cv2': 'opencv-python',\n")
-        f.write("        'bs4': 'beautifulsoup4',\n")
-        f.write("        'yaml': 'pyyaml',\n")
-        f.write("        'Crypto': 'pycryptodome',\n")
-        f.write("        'OpenSSL': 'pyOpenSSL',\n")
-        f.write("    }\n")
-        f.write("    pkg = _MAP.get(missing)\n")
-        f.write("    if pkg:\n")
-        f.write("        print('gravix_runner: auto-installing %s for missing module %s' % (pkg, missing))\n")
-        f.write("        try:\n")
-        f.write("            subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])\n")
-        f.write("            _try_run()\n")
-        f.write("        except Exception:\n")
-        f.write("            import traceback; traceback.print_exc(); sys.exit(1)\n")
-        f.write("    else:\n")
-        f.write("        raise\n")
-        f.write("except SystemExit:\n")
-        f.write("    raise\n")
-        f.write("except Exception:\n")
-        f.write("    import traceback\n")
-        f.write("    traceback.print_exc()\n")
-        f.write("    sys.exit(1)\n")
+        f.write(runner_code)
 
     # Shell runner (not used by CMD anymore; kept for compatibility)
     runner_sh = os.path.join(workspace, "gravix_runner.sh")
     with open(runner_sh, "w") as f:
-        f.write("#!/usr/bin/env bash\n")
-        f.write("set -e\n")
-        f.write('export BOT_TOKEN="${TELEGRAM_TOKEN}"\n')
-        f.write("python gravix_runner.py\n")
+        f.write("#!/usr/bin/env bash\\n")
+        f.write("set -e\\n")
+        f.write('export BOT_TOKEN="${TELEGRAM_TOKEN}"\\n')
+        f.write("python gravix_runner.py\\n")
     os.chmod(runner_sh, 0o755)
 
     # Write autodetected requirements file (preferred)
@@ -461,32 +473,43 @@ except Exception:
     if requirements:
         req_auto_path = os.path.join(workspace, "requirements.autodetected.txt")
         with open(req_auto_path, "w") as rf:
-            rf.write("\n".join(requirements))
+            rf.write("\\n".join(requirements))
         # Also ensure a requirements.txt exists for user code
         req_txt_path = os.path.join(workspace, "requirements.txt")
         if not os.path.exists(req_txt_path):
             try:
                 with open(req_txt_path, "w") as rtf:
-                    rtf.write("\n".join(requirements))
+                    rtf.write("\\n".join(requirements))
             except Exception:
                 pass
 
+    # Decide run mode from settings
+    try:
+        settings = get_settings()
+        run_mode = str(settings.get("run_mode", "runner")).lower()
+    except Exception:
+        run_mode = "runner"
+
     dockerfile = os.path.join(workspace, "Dockerfile")
     with open(dockerfile, "w") as f:
-        f.write("FROM python:3.11-slim\n")
-        f.write("WORKDIR /app\n")
-        f.write("COPY . /app\n")
+        f.write("FROM python:3.11-slim\\n")
+        f.write("WORKDIR /app\\n")
+        f.write("COPY . /app\\n")
         # Basic system deps that frequently help builds (kept minimal)
-        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\n")
-        f.write("RUN pip install --no-cache-dir --upgrade pip\n")
+        f.write("RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*\\n")
+        f.write("RUN pip install --no-cache-dir --upgrade pip\\n")
         # Prefer installing autodetected requirements first (clean set)
         if req_auto_path:
-            f.write("RUN pip install -r requirements.autodetected.txt\n")
+            f.write("RUN pip install -r requirements.autodetected.txt\\n")
         # Then try user requirements if present
-        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
-        f.write("ENV PYTHONUNBUFFERED=1\n")
-        # Use the Python runner to ensure token injection works for simple scripts
-        f.write('CMD ["python", "/app/gravix_runner.py"]\n')
+        f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\\n")
+        f.write("ENV PYTHONUNBUFFERED=1\\n")
+        if run_mode == "direct":
+            # Directly run user's entry, token is available via env (BOT_TOKEN/TOKEN/TELEGRAM_TOKEN)
+            f.write(f'CMD ["python", "-u", "/app/{entry_file}"]\\n')
+        else:
+            # Use the Python runner to ensure token injection works for simple scripts
+            f.write('CMD ["python", "/app/gravix_runner.py"]\\n')
 
 
 def _docker_available() -> bool:
@@ -506,41 +529,77 @@ def _run_locally(workspace: str, entry: Optional[str], token: str) -> Tuple[bool
 
 
 def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
-    image_tag = f"gravixhost_{user_id}_{bot_id}".lower()
-    # Enforce Docker-only
+    """
+    Replace previous multi-file workspace build with single-file, temp-dir based flow
+    similar to the provided method: detect framework, guess minimal requirements,
+    write bot.py and Dockerfile into a temp dir, build, and run.
+    """
     if not _docker_available():
         log_event("Docker not available. Aborting deployment.")
         return False, None, "docker_unavailable"
+
+    # Read the bot code from the workspace (entry file or the first .py we can find)
+    code = None
+    entry_file = entry
+    try:
+        if not entry_file:
+            # Prefer bot.py at root if present
+            candidate = os.path.join(workspace, "bot.py")
+            if os.path.exists(candidate):
+                entry_file = "bot.py"
+            else:
+                # Find any .py file (fallback)
+                for f in os.listdir(workspace):
+                    if f.endswith(".py"):
+                        entry_file = f
+                        break
+        if entry_file:
+            with open(os.path.join(workspace, entry_file), "r", encoding="utf-8", errors="ignore") as f:
+                code = f.read()
+    except Exception:
+        code = None
+
+    if not code:
+        return False, None, "no_entry_py"
+
+    framework, token_var = detect_framework(code)
+    reqs = guess_requirements(framework)
+
+    temp_dir = None
     client = docker_from_env()
     try:
-        requirements = detect_requirements(workspace)
-        write_runner_and_dockerfile(workspace, entry=entry, requirements=requirements)
-        # Build
-        log_event(f"Building runtime for {bot_id}")
-        client.images.build(path=workspace, tag=image_tag, rm=True, nocache=True)
-        # Run with resource limits
-        env = {
-            "TELEGRAM_TOKEN": token,
-            "BOT_TOKEN": token,
-            "TOKEN": token,
-            "TELEGRAM_BOT_TOKEN": token
-        }
-        # Load dynamic settings overrides
-        settings = get_settings()
-        try:
-            cpu_limit = float(settings.get("cpu_limit", RUNTIME_CPU_LIMIT))
-        except Exception:
-            cpu_limit = float(RUNTIME_CPU_LIMIT)
-        mem_limit = str(settings.get("mem_limit", RUNTIME_MEM_LIMIT))
-        # Default restart policy to off to avoid restart loops for scripts that exit quickly
-        restart_policy_on = (str(settings.get("restart_policy", "off")).lower() == "on")
-        network = settings.get("network", RUNTIME_NETWORK)
-        host_cfg = client.api.create_host_config(
-            nano_cpus=int(cpu_limit * 1e9),
-            mem_limit=mem_limit,
-            restart_policy={"Name": "unless-stopped"} if restart_policy_on else {"Name": "no"}
+        temp_dir = tempfile.mkdtemp()
+        # Write code and requirements to temp dir
+        with open(os.path.join(temp_dir, "bot.py"), "w", encoding="utf-8") as f:
+            f.write(code)
+        with open(os.path.join(temp_dir, "requirements.txt"), "w", encoding="utf-8") as f:
+            f.write("\n".join(reqs) if reqs else "")
+
+        # Base image selection based on framework
+        base_img = AIOGRAM_V2_IMAGE if framework == "aiogram_v2" else DEFAULT_BASE_IMAGE
+        dockerfile = (
+            f"FROM {base_img}\n"
+            "WORKDIR /app\n"
+            "COPY requirements.txt .\n"
+            "RUN pip install --no-cache-dir -r requirements.txt\n"
+            "COPY bot.py .\n"
+            f"ENV TOKEN={token}\n"
+            f"ENV BOT_TOKEN={token}\n"
+            f"ENV {token_var}={token}\n"
+            'CMD ["python","-u","bot.py"]\n'
         )
-        # Ensure network exists if specified
+        with open(os.path.join(temp_dir, "Dockerfile"), "w", encoding="utf-8") as f:
+            f.write(dockerfile)
+
+        image_tag = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
+        container_name = f"hostbot_{user_id}_{bot_id}_{int(time.time())}".lower().replace(" ", "_").replace("-", "_")
+
+        # Build image
+        log_event(f"Building image {image_tag} for {bot_id}")
+        client.images.build(path=temp_dir, tag=image_tag, rm=True, timeout=BUILD_TIMEOUT_SECS)
+
+        # Ensure network exists or use default bridge
+        network = RUNTIME_NETWORK
         if network:
             try:
                 nets = client.networks.list(names=[network])
@@ -548,26 +607,32 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: 
                     client.networks.create(name=network)
                     log_event(f"Created missing Docker network: {network}")
             except Exception:
-                # Non-fatal: container will use default bridge if network not found/created
                 log_event(f"Could not verify/create network '{network}', proceeding with defaults.")
-        create_kwargs = {
-            "image": image_tag,
-            "name": image_tag,
-            "environment": env,
-            "host_config": host_cfg,
-        }
-        if network:
-            create_kwargs["network"] = network
-        container = client.api.create_container(**create_kwargs)
-        client.api.start(container=container.get("Id"))
-        runtime_id = container.get("Id")
-        log_event(f"Runtime started {runtime_id} for {bot_id}")
+                network = None
+
+        # Run container with simple resource limits (same-to-same style)
+        container = client.containers.run(
+            image_tag,
+            name=container_name,
+            detach=True,
+            cpu_quota=DEFAULT_CPU_QUOTA,
+            mem_limit=DEFAULT_MEM_LIMIT,
+            pids_limit=DEFAULT_PIDS_LIMIT,
+            network=network if network else None,
+            restart_policy={"Name": "unless-stopped"},
+        )
+
+        runtime_id = container.id
+        log_event(f"Runtime started {runtime_id} for {bot_id} (framework={framework})")
         return True, runtime_id, None
     except docker_errors.BuildError:
         return False, None, "build_error"
     except Exception as e:
-        log_event(f"Docker path failed: {e}.")
+        log_event(f"Build/run failed for {bot_id}: {e}")
         return False, None, str(e)
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def stop_runtime(runtime_id: str) -> bool:
@@ -634,18 +699,6 @@ def get_runtime_logs(runtime_id: str, tail: int = 200) -> Optional[str]:
                 return logs.decode("utf-8", errors="replace")
             except Exception:
                 return logs.decode("latin1", errors="replace")
-        return str(logs)
-    except Exception:
-        return None
-        client = docker_from_env()
-        # stream=False returns bytes
-        logs = client.api.logs(runtime_id, tail=tail, stdout=True, stderr=True)
-        if isinstance(logs, (bytes, bytearray)):
-            try:
-                return logs.decode("utf-8", errors="replace")
-            except Exception:
-                return logs.decode("latin1", errors="replace")
-        # docker-py may return generator if stream=True; we don't use that here
         return str(logs)
     except Exception:
         return None
