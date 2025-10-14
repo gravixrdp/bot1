@@ -71,6 +71,24 @@ async def admin_premium_msg(message: Message):
         parse_mode=ParseMode.HTML,
     )
 
+@router.message(F.text == "💬 Inbox")
+async def admin_inbox(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    from .storage import get_messages
+    msgs = get_messages(limit=50)
+    if not msgs:
+        await message.answer(bold("💬 Inbox") + "\nNo messages yet.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+        return
+    # Build readable list
+    lines = [bold("💬 Inbox (last 50)")]
+    for m in msgs:
+        from_user = get_user(int(m["user_id"]))
+        name = from_user.get("name") or "Unknown"
+        lines.append(f"• {m['time']} — {bold(name)} ({code(str(m['user_id']))})")
+        lines.append(f"  {escape(m['text'])}")
+    await message.answer("\n".join(lines), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
 
 @router.message(F.text == "📦 Apps")
 async def admin_apps_msg(message: Message):
@@ -78,16 +96,23 @@ async def admin_apps_msg(message: Message):
         return
     text = [bold("📦 Apps")]
     db = _read_db()
-    for b in db["bots"].values():
+    bots = list(db["bots"].values())
+    for b in bots:
         text.append(
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append(
-        "\n" + bold("Admin commands:") +
-        "\n" + code("stopbot <id>") + "  " + code("restartbot <id>") + "  " + code("removebot <id>") + "  " + code("logsbot <id>")
-    )
     await message.answer("\n".join(text), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+
+    # Send quick action buttons for one-tap control
+    from .keyboards import bots_action_list
+    if bots:
+        await message.answer(bold("🛑 Stop a Bot") + "\nTap to stop:", reply_markup=bots_action_list(bots, "Stop", "admin_stop"), parse_mode=ParseMode.HTML)
+        await message.answer(bold("♻️ Restart a Bot") + "\nTap to restart:", reply_markup=bots_action_list(bots, "Restart", "admin_restart"), parse_mode=ParseMode.HTML)
+        await message.answer(bold("🗑️ Remove a Bot") + "\nTap to remove:", reply_markup=bots_action_list(bots, "Remove", "admin_remove"), parse_mode=ParseMode.HTML)
+        await message.answer(bold("📜 Bot Logs") + "\nTap to view:", reply_markup=bots_action_list(bots, "Logs", "admin_logs"), parse_mode=ParseMode.HTML)
+    else:
+        await message.answer(bold("No bots yet."), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🧾 Logs")
@@ -96,8 +121,18 @@ async def admin_logs_msg(message: Message):
         return
     db = _read_db()
     logs = db["logs"][-30:]
-    text = [bold("🧾 Logs (last 30)"), *["• {0} — {1}".format(l['time'], l['event']) for l in logs]]
-    await message.answer("\n".join(text), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    header = bold("🧾 Logs (last 30)")
+    body = pre("\n".join(["• {0} — {1}".format(l['time'], l['event']) for l in logs]))
+    await message.answer(header + "\n" + body, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+
+@router.message(F.text == "🗑️ Clear Admin Logs")
+async def admin_clear_logs(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    from .storage import clear_admin_logs, log_event_admin
+    clear_admin_logs()
+    log_event_admin(f"Admin {message.from_user.id} cleared admin logs")
+    await message.answer("✅ Admin logs cleared.", reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "⚙️ Settings")
@@ -198,7 +233,7 @@ async def admin_stopbot(message: Message):
     if not is_admin(message.from_user.id):
         return
     bot_id = message.text.strip().split()[1]
-    from .storage import get_bot, mark_stopped
+    from .storage import get_bot, mark_stopped, log_event_admin
     from .services.hoster import stop_runtime
     b = get_bot(bot_id)
     if not b:
@@ -208,6 +243,7 @@ async def admin_stopbot(message: Message):
     if rid:
         stop_runtime(rid)
     mark_stopped(bot_id)
+    log_event_admin(f"Admin {message.from_user.id} stopped bot {bot_id}")
     await message.answer(f"🛑 Stopped {code(bot_id)}", parse_mode=ParseMode.HTML, reply_markup=admin_menu_apps())
 
 
@@ -274,13 +310,13 @@ async def admin_logsbot(message: Message):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 # Keep callback-based handlers for backward compatibility (not used by the new UI)
@@ -319,24 +355,34 @@ async def admin_apps(cb: CallbackQuery):
         return
     text = [bold("📦 Apps")]
     db = _read_db()
-    for b in db["bots"].values():
+    bots = list(db["bots"].values())
+    for b in bots:
         text.append(
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append("\n" + bold("Admin commands:") + "\n<code>stopbot &lt;id&gt;</code> <code>restartbot &lt;id&gt;</code> <code>removebot &lt;id&gt;</code>")
     await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+
+    # Inline quick action lists
+    from .keyboards import bots_action_list
+    if bots:
+        await cb.message.answer(bold("🛑 Stop a Bot") + "\nTap to stop:", reply_markup=bots_action_list(bots, "Stop", "admin_stop"), parse_mode=ParseMode.HTML)
+        await cb.message.answer(bold("♻️ Restart a Bot") + "\nTap to restart:", reply_markup=bots_action_list(bots, "Restart", "admin_restart"), parse_mode=ParseMode.HTML)
+        await cb.message.answer(bold("🗑️ Remove a Bot") + "\nTap to remove:", reply_markup=bots_action_list(bots, "Remove", "admin_remove"), parse_mode=ParseMode.HTML)
+        await cb.message.answer(bold("📜 Bot Logs") + "\nTap to view:", reply_markup=bots_action_list(bots, "Logs", "admin_logs"), parse_mode=ParseMode.HTML)
+    else:
+        await cb.message.answer(bold("No bots yet."), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
-@router.callback_query(F.data == "admin_logs")
-async def admin_logs(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("admin_stop def admin_logs(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
     db = _read_db()
     logs = db["logs"][-30:]
-    text = [bold("🧾 Logs (last 30)"), *["• {0} — {1}".format(l['time'], l['event']) for l in logs]]
-    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    header = bold("🧾 Logs (last 30)")
+    body = pre("\n".join(["• {0} — {1}".format(l['time'], l['event']) for l in logs]))
+    await cb.message.answer(header + "\n" + body, reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 

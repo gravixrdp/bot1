@@ -9,66 +9,82 @@ from aiogram.types import (
 # Reply keyboard that stays above the input field and sends button text as a message
 def main_menu(is_premium: bool) -> ReplyKeyboardMarkup:
     if is_premium:
-        rows = [
-            [KeyboardButton(text="📦 Host My Bot")],
-            [KeyboardButton(text="⚙️ Manage My Bots")],
-            [KeyboardButton(text="📘 How it Works")],
-            [KeyboardButton(text="💬 Contact Admin")],
-            [KeyboardButton(text="🆘 Support")],
-            [KeyboardButton(text="👤 My Info")],
-            [KeyboardButton(text="⏳ Premium Time Left")],
-            [KeyboardButton(text="🏠 Main Menu")],
-        ]
+        # Single horizontal row
+        rows = [[
+            KeyboardButton(text="📦 Host My Bot"),
+            KeyboardButton(text="⚙️ Manage My Bots"),
+            KeyboardButton(text="📘 How it Works"),
+            KeyboardButton(text="💬 Contact Admin"),
+            KeyboardButton(text="🆘 Support"),
+            KeyboardButton(text="👤 My Info"),
+            KeyboardButton(text="⏳ Premium Time Left"),
+            KeyboardButton(text="🏠 Main Menu"),
+        ]]
     else:
-        rows = [
-            [KeyboardButton(text="📦 Host My Bot")],
-            [KeyboardButton(text="⚙️ Manage My Bots")],
-            [KeyboardButton(text="ℹ️ How it Works")],
-            [KeyboardButton(text="💰 Upgrade to Premium")],
-            [KeyboardButton(text="🆘 Support")],
-            [KeyboardButton(text="👤 My Info")],
-            [KeyboardButton(text="⏳ Premium Time Left")],
-            [KeyboardButton(text="🏠 Main Menu")],
-        ]
+        # Single horizontal row
+        rows = [[
+            KeyboardButton(text="📦 Host My Bot"),
+            KeyboardButton(text="⚙️ Manage My Bots"),
+            KeyboardButton(text="ℹ️ How it Works"),
+            KeyboardButton(text="💰 Upgrade to Premium"),
+            KeyboardButton(text="🆘 Support"),
+            KeyboardButton(text="👤 My Info"),
+            KeyboardButton(text="⏳ Premium Time Left"),
+            KeyboardButton(text="🏠 Main Menu"),
+        ]]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 # User "Manage My Bots" persistent menu
 def user_manage_menu() -> ReplyKeyboardMarkup:
-    # One button per row for a cleaner vertical layout
-    rows = [
-        [KeyboardButton(text="🔍 My Running Bots")],
-        [KeyboardButton(text="🛑 Stop My Bot")],
-        [KeyboardButton(text="♻️ Restart My Bot")],
-        [KeyboardButton(text="🗑️ Remove My Bot")],
-        [KeyboardButton(text="📜 Bot Logs")],
-        [KeyboardButton(text="🧾 My Logs")],
-        [KeyboardButton(text="🏠 Main Menu")],
-    ]
+    # Single horizontal row with all actions
+    rows = [[
+        KeyboardButton(text="🔍 My Running Bots"),
+        KeyboardButton(text="🛑 Stop My Bot"),
+        KeyboardButton(text="♻️ Restart My Bot"),
+        KeyboardButton(text="🗑️ Remove My Bot"),
+        KeyboardButton(text="📜 Bot Logs"),
+        KeyboardButton(text="🧾 My Logs"),
+        KeyboardButton(text="🏠 Main Menu"),
+    ]]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 # Admin menus as persistent reply keyboards
 def admin_menu() -> ReplyKeyboardMarkup:
-    # Keep compact two-per-row layout for admin
-    rows = [
-        [KeyboardButton(text="👥 Users"), KeyboardButton(text="💎 Premium")],
-        [KeyboardButton(text="📦 Apps"), KeyboardButton(text="🧾 Logs")],
-        [KeyboardButton(text="⚙️ Settings"), KeyboardButton(text="🏠 Main Menu")],
-    ]
+    # Single horizontal row
+    rows = [[
+        KeyboardButton(text="👥 Users"),
+        KeyboardButton(text="💎 Premium"),
+        KeyboardButton(text="📦 Apps"),
+        KeyboardButton(text="💬 Inbox"),
+        KeyboardButton(text="🧾 Logs"),
+        KeyboardButton(text="🗑️ Clear Admin Logs"),
+        KeyboardButton(text="⚙️ Settings"),
+        KeyboardButton(text="🏠 Main Menu"),
+    ]]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
+
+
+def contact_chat_menu() -> ReplyKeyboardMarkup:
+    # Minimal chat UI for contacting admin
+    rows = [[KeyboardButton(text="⬅️ Back")]]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 
 def admin_menu_apps() -> ReplyKeyboardMarkup:
-    # Same admin menu plus quick action helpers for apps
-    rows = [
-        [KeyboardButton(text="👥 Users"), KeyboardButton(text="💎 Premium")],
-        [KeyboardButton(text="📦 Apps"), KeyboardButton(text="🧾 Logs")],
-        [KeyboardButton(text="⚙️ Settings"), KeyboardButton(text="🏠 Main Menu")],
-        [KeyboardButton(text="stopbot")],
-        [KeyboardButton(text="restartbot")],
-        [KeyboardButton(text="removebot")],
-    ]
+    # Single horizontal row including quick actions
+    rows = [[
+        KeyboardButton(text="👥 Users"),
+        KeyboardButton(text="💎 Premium"),
+        KeyboardButton(text="📦 Apps"),
+        KeyboardButton(text="🧾 Logs"),
+        KeyboardButton(text="⚙️ Settings"),
+        KeyboardButton(text="🏠 Main Menu"),
+        KeyboardButton(text="stopbot"),
+        KeyboardButton(text="restartbot"),
+        KeyboardButton(text="removebot"),
+    ]]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
 

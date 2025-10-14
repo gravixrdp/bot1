@@ -44,6 +44,10 @@ class HostStates(StatesGroup):
     waiting_token = State()
 
 
+class ContactStates(StatesGroup):
+    chat = State()
+
+
 router = Router(name="user")
 
 
@@ -97,7 +101,7 @@ def _safe_parse(s):
 
 def _detect_entry(workspace: str, uploaded_filename: str) -> str:
     # Prefer typical names if present
-    candidates = ["bot.py", "app.py", "main.py"]
+    candidates = ["bot.py", "app.py", "main.py", "bold.py"]
     for c in candidates:
         p = os.path.join(workspace, c)
         if os.path.exists(p):
@@ -218,6 +222,52 @@ async def on_upgrade_btn(message: Message):
 async def on_my_info_btn(message: Message):
     await cmd_myinfo(message)
 
+@router.message(F.text == "⏳ Premium Time Left")
+async def on_premium_time_left(message: Message):
+    user = get_user(message.from_user.id)
+    if not user.get("is_premium"):
+        await message.answer(
+            bold("⏳ Premium Time Left") + "\nYou are currently on the Free plan.\nUse the upgrade button to get unlimited uptime 💎.",
+            reply_markup=main_menu(False),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    expiry_str = user.get("premium_expiry")
+    if not expiry_str:
+        await message.answer(
+            bold("⏳ Premium Time Left") + "\nPremium status is active, but expiry is not set.",
+            reply_markup=main_menu(True),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    from datetime import datetime
+    try:
+        exp_dt = datetime.fromisoformat(expiry_str)
+        now = datetime.utcnow()
+        if now >= exp_dt:
+            await message.answer(
+                bold("⏳ Premium Time Left") + "\nYour premium has expired.",
+                reply_markup=main_menu(False),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        remaining = exp_dt - now
+        days = remaining.days
+        hours = remaining.seconds // 3600
+        minutes = (remaining.seconds % 3600) // 60
+        text = (
+            bold("⏳ Premium Time Left") + "\n"
+            + f"• Expires on: {bold(human_dt(exp_dt))}\n"
+            + f"• Remaining: {bold(f'{days}d {hours}h {minutes}m')}"
+        )
+        await message.answer(text, reply_markup=main_menu(True), parse_mode=ParseMode.HTML)
+    except Exception:
+        await message.answer(
+            bold("⏳ Premium Time Left") + "\nCould not determine expiry.",
+            reply_markup=main_menu(True),
+            parse_mode=ParseMode.HTML,
+        )
+
 
 @router.message(F.text == "🆘 Support")
 async def on_support(message: Message):
@@ -282,13 +332,13 @@ async def my_logs(message: Message):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🗑️ Remove My Bot")
@@ -340,8 +390,7 @@ async def help_restart_my_bot(message: Message):
         bold("♻️ Restart My Bot") + "\nTap a bot to restart it:",
         reply_markup=bots_action_list(bots, "Restart", "user_restart"),
         parse_mode=ParseMode.HTML,
- _code{bold(b['status'])}")
-    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    )
 
 
 @router.message(F.text.regexp(r"^stop\s+\S+$"))
@@ -421,13 +470,13 @@ async def user_logs_bot(message: Message):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")
@@ -438,14 +487,16 @@ async def on_main_menu(message: Message):
 
 
 @router.message(F.text == "💬 Contact Admin")
-async def on_contact_admin(message: Message):
+async def on_contact_admin(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user.get("is_premium"):
         await message.answer("This feature is available for premium users only.", parse_mode=ParseMode.HTML)
         return
+    from .keyboards import contact_chat_menu
+    await state.set_state(ContactStates.chat)
     await message.answer(
-        "💬 Contact Admin\nSend a message starting with " + code("admin:") + " and we'll forward it to the admin.",
-        reply_markup=main_menu(True),
+        bold("💬 Contact Admin") + "\nType your message below. We'll forward it to the admin.",
+        reply_markup=contact_chat_menu(),
         parse_mode=ParseMode.HTML,
     )
 
@@ -615,12 +666,12 @@ async def cb_contact_admin(cb: CallbackQuery):
     await cb.answer()
 
 
-@router.message(F.text.startswith("admin:"))
-async def forward_to_admin(message: Message):
+@router.message(ContactStates.chat, F.text)
+async def contact_admin_forward(message: Message, state: FSMContext):
     user = get_user(message.from_user.id)
     if not user.get("is_premium"):
-        return
-    from .config import ADMIN_TELEGRAM_ID
+        await state.clear()
+AM_ID
     if not ADMIN_TELEGRAM_ID:
         await message.answer("Admin is not configured.", parse_mode=ParseMode.HTML)
         return
@@ -752,7 +803,7 @@ async def cb_user_logs(cb: CallbackQuery):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await cb.message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_modeeMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)

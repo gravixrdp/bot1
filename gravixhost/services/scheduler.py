@@ -2,7 +2,16 @@ import asyncio
 from datetime import timedelta
 from typing import Callable
 
-from ..storage import get_bot, get_user_bots, has_free_time_expired, premium_expired, mark_stopped, update_user, get_user
+from ..storage import (
+    get_bot,
+    get_user_bots,
+    has_free_time_expired,
+    premium_expired,
+    mark_stopped,
+    update_user,
+    get_user,
+    purge_old_logs,
+)
 from .hoster import stop_runtime
 from ..config import FREE_PLAN_DURATION
 
@@ -19,6 +28,8 @@ class Scheduler:
     async def _loop(self):
         while True:
             try:
+                # Periodic user-log cleanup (keeps admin logs)
+                purge_old_logs(max_age_minutes=30)
                 # Check free bots for timeout
                 await self._check_free_timeouts()
                 # Check premium expiry daily
