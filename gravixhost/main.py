@@ -296,6 +296,14 @@ async def cb_manage(cb: CallbackQuery):
     await cb.answer()
 
 
+@router.callback_query(F.data == "main_menu")
+async def cb_main_menu(cb: CallbackQuery):
+    user = get_user(cb.from_user.id)
+    await cb.message.answer("🏠 Main Menu", reply_markup=main_menu(user.get("is_premium")), parse_mode=ParseMode.MARKDOWN_V2)
+    await cb.answ_codeernew(</)
+()
+
+
 async def on_timeout_notify(bot: Bot, user_id: int, bot_id: str):
     await bot.send_message(
         chat_id=user_id,

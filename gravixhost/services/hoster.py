@@ -120,13 +120,15 @@ def build_and_run(user_id: int, bot_id: str, token: str, workspace: str) -> Tupl
             auto_remove=True,
             restart_policy={"Name": "unless-stopped"}
         )
-        container = client.api.create_container(
-            image=image_tag,
-            name=image_tag,
-            environment=env,
-            host_config=host_cfg,
-            network=RUNTIME_NETWORK if RUNTIME_NETWORK else None,
-        )
+        create_kwargs = {
+            "image": image_tag,
+            "name": image_tag,
+            "environment": env,
+            "host_config": host_cfg,
+        }
+        if RUNTIME_NETWORK:
+            create_kwargs["network"] = RUNTIME_NETWORK
+        container = client.api.create_container(**create_kwargs)
         client.api.start(container=container.get("Id"))
         runtime_id = container.get("Id")
         log_event(f"Runtime started {runtime_id} for {bot_id}")

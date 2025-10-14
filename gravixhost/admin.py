@@ -66,7 +66,7 @@ async def admin_premium(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         return
     await cb.message.answer(
-        "💎 Premium Controls\nSend: `premium &lt;user_id&gt; &lt;days&gt;` or `unpremium &lt;user_id&gt;`",
+        "💎 Premium Controls\nSend: " + code("premium <user_id> <days>") + " or " + code("unpremium <user_id>"),
         reply_markup=admin_fixed_bar(),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
@@ -121,7 +121,7 @@ async def admin_logs(cb: CallbackQuery):
     await cb.answer()
 
 
-@router.message(F.text.regexp(r"^stopbot\s+\\S+$"))
+@router.message(F.text.regexp(r"^stopbot\s+\S+$"))
 async def admin_stopbot(message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -139,7 +139,7 @@ async def admin_stopbot(message: Message):
     await message.answer(f"🛑 Stopped {code(bot_id)}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
-@router.message(F.text.regexp(r"^restartbot\s+\\S+$"))
+@router.message(F.text.regexp(r"^restartbot\s+\S+$"))
 async def admin_restartbot(message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -157,7 +157,7 @@ async def admin_restartbot(message: Message):
         await message.answer("Failed to restart.")
 
 
-@router.message(F.text.regexp(r"^removebot\s+\\S+$"))
+@router.message(F.text.regexp(r"^removebot\s+\S+$"))
 async def admin_removebot(message: Message):
     if not is_admin(message.from_user.id):
         return
