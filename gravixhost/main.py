@@ -282,13 +282,13 @@ async def my_logs(message: Message):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🗑️ Remove My Bot")
@@ -420,13 +420,13 @@ async def user_logs_bot(message: Message):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")
@@ -751,7 +751,7 @@ async def cb_user_logs(cb: CallbackQuery):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await cb.message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            await cb.message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=user_manage_menu(), parse_modeeMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)

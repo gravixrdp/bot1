@@ -96,8 +96,9 @@ async def admin_logs_msg(message: Message):
         return
     db = _read_db()
     logs = db["logs"][-30:]
-    text = [bold("🧾 Logs (last 30)"), *["• {0} — {1}".format(l['time'], l['event']) for l in logs]]
-    await message.answer("\n".join(text), reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
+    header = bold("🧾 Logs (last 30)")
+    body = pre("\n".join(["• {0} — {1}".format(l['time'], l['event']) for l in logs]))
+    await message.answer(header + "\n" + body, reply_markup=admin_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "⚙️ Settings")
@@ -274,13 +275,13 @@ async def admin_logsbot(message: Message):
     current_len = 0
     for line in logs:
         if current_len + len(line) + 1 > 3500:
-            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+            await message.answer(header + "\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
             chunk = []
             current_len = 0
         chunk.append(line)
         current_len += len(line) + 1
     if chunk:
-        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+        await message.answer(header + " (cont.)\n" + pre("\n".join(chunk)), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 # Keep callback-based handlers for backward compatibility (not used by the new UI)
@@ -335,8 +336,9 @@ async def admin_logs(cb: CallbackQuery):
         return
     db = _read_db()
     logs = db["logs"][-30:]
-    text = [bold("🧾 Logs (last 30)"), *["• {0} — {1}".format(l['time'], l['event']) for l in logs]]
-    await cb.message.answer("\n".join(text), reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
+    header = bold("🧾 Logs (last 30)")
+    body = pre("\n".join(["• {0} — {1}".format(l['time'], l['event']) for l in logs]))
+    await cb.message.answer(header + "\n" + body, reply_markup=admin_fixed_bar(), parse_mode=ParseMode.HTML)
     await cb.answer()
 
 
