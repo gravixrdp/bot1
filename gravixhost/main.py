@@ -218,6 +218,52 @@ async def on_upgrade_btn(message: Message):
 async def on_my_info_btn(message: Message):
     await cmd_myinfo(message)
 
+@router.message(F.text == "⏳ Premium Time Left")
+async def on_premium_time_left(message: Message):
+    user = get_user(message.from_user.id)
+    if not user.get("is_premium"):
+        await message.answer(
+            bold("⏳ Premium Time Left") + "\nYou are currently on the Free plan.\nUse the upgrade button to get unlimited uptime 💎.",
+            reply_markup=main_menu(False),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    expiry_str = user.get("premium_expiry")
+    if not expiry_str:
+        await message.answer(
+            bold("⏳ Premium Time Left") + "\nPremium status is active, but expiry is not set.",
+            reply_markup=main_menu(True),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    from datetime import datetime
+    try:
+        exp_dt = datetime.fromisoformat(expiry_str)
+        now = datetime.utcnow()
+        if now >= exp_dt:
+            await message.answer(
+                bold("⏳ Premium Time Left") + "\nYour premium has expired.",
+                reply_markup=main_menu(False),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        remaining = exp_dt - now
+        days = remaining.days
+        hours = remaining.seconds // 3600
+        minutes = (remaining.seconds % 3600) // 60
+        text = (
+            bold("⏳ Premium Time Left") + "\n"
+            + f"• Expires on: {bold(human_dt(exp_dt))}\n"
+            + f"• Remaining: {bold(f'{days}d {hours}h {minutes}m')}"
+        )
+        await message.answer(text, reply_markup=main_menu(True), parse_mode=ParseMode.HTML)
+    except Exception:
+        await message.answer(
+            bold("⏳ Premium Time Left") + "\nCould not determine expiry.",
+            reply_markup=main_menu(True),
+            parse_mode=ParseMode.HTML,
+        )
+
 
 @router.message(F.text == "🆘 Support")
 async def on_support(message: Message):
