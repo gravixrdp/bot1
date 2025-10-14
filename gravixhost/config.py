@@ -30,7 +30,14 @@ def _parse_admin_ids(raw: str):
     return ids
 
 
-ADMIN_TELEGRAM_IDS = _parse_admin_ids(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+# Accept multiple possible env var names for admin IDs
+_admin_envs = [
+    os.getenv("ADMIN_TELEGRAM_IDS", ""),
+    os.getenv("ADMIN_TELEGRAM_ID", ""),
+    os.getenv("ADMIN_ID", ""),
+]
+_admin_combined = ",".join([e for e in _admin_envs if e]).strip() or "0"
+ADMIN_TELEGRAM_IDS = _parse_admin_ids(_admin_combined)
 # Backward-compat single admin id
 ADMIN_TELEGRAM_ID = next(iter(ADMIN_TELEGRAM_IDS), 0)
 
