@@ -64,7 +64,7 @@ async def cmd_help(message: Message):
     text = (
         f"{bold('🆘 Help')}\n"
         "• Use '📦 Host My Bot' to upload your bot code.\n"
-        "• Make sure your main file is named " + code("bot.py") + ".\n"
+        "• Upload a .py file or a .zip containing your bot code.\n"
         "• After upload, send your bot token from " + bold("@BotFather") + ".\n"
         "• Free plan: 1 hour; Premium: unlimited uptime 💎.\n"
     )
@@ -93,6 +93,31 @@ def _safe_parse(s):
         return datetime.fromisoformat(s)
     except Exception:
         return None
+
+
+def _detect_entry(workspace: str, uploaded_filename: str) -> str:
+    # Prefer typical names if present
+    candidates = ["bot.py", "app.py", "main.py"]
+    for c in candidates:
+        p = os.path.join(workspace, c)
+        if os.path.exists(p):
+            return c
+    # If user uploaded a single .py, run that
+    if uploaded_filename.lower().endswith(".py"):
+        return uploaded_filename
+    # Otherwise, pick a top-level .py if available, else first .py anywhere
+    tops = []
+    any_py = None
+    for root, _, files in os.walk(workspace):
+        for f in files:
+            if f.endswith(".py"):
+                if any_py is None:
+                    any_py = os.path.relpath(os.path.join(root, f), workspace)
+                if os.path.abspath(root) == os.path.abspath(workspace):
+                    tops.append(f)
+    if tops:
+        return tops[0]
+    return any_py or "bot.py"
 
 
 @router.message(Command("upgrade"))
@@ -176,7 +201,7 @@ async def on_host_btn(message: Message, state: FSMContext):
 async def on_how_it_works(message: Message):
     text = (
         f"{bold('📘 How it Works')}\n"
-        "• Upload your bot code (prefer " + code("bot.py") + " or a .zip).\n"
+        "• Upload your bot code (.py or a .zip). We auto-detect your entry file.\n"
         "• Send your bot token.\n"
         "• We prepare a secure runtime and get your bot online.\n"
         "• Free plan: 1 hour uptime; Premium: unlimited.\n"
@@ -233,25 +258,7 @@ async def on_contact_admin(message: Message):
     )
 
 
-@router.message(F.text == "🖋️ Style Text")
-async def on_style_text(message: Message):
-    demo = (
-        "Text styling options (Telegram-supported):\n"
-        f"• Bold: {bold('Bold sample')}\n"
-        f"• Italic: {italic('Italic sample')}\n"
-        f"• Underline: {underline('Underline sample')}\n"
-        f"• Strikethrough: {strike('Strikethrough sample')}\n"
-        f"• Monospace (inline): {code('inline code')}\n"
-        f"• Monospace (block):\n{pre('line 1\\nline 2')}\n\n"
-        "Use commands:\n"
-        + code("/bold Your text here") + "\n"
-        + code("/italic Your text here") + "\n"
-        + code("/underline Your text here") + "\n"
-        + code("/strike Your text here") + "\n"
-        + code("/mono Your text here") + "  (inline monospace)\n"
-        + code("/pre Your text here") + "   (block monospace)"
-    )
-    await message.answer(demo, parse_mode=ParseMode.HTML)
+
 
 
 async def _start_host_flow(message: Message, state: FSMContext):
@@ -286,7 +293,10 @@ async def handle_upload(message: Message, state: FSMContext):
     workspace = save_upload(user_id, bot_rec["id"], filename, data_bytes)
     from .storage import update_bot
     update_bot(bot_rec["id"], path=workspace)
-    await state.update_data(pending=PendingHost(workspace=workspace, entry_name="bot.py", bot_record_id=bot_rec["id"], bot_name=bot_rec["name"]).__dict__)
+
+    # Detect entry file
+    entry_name = _detect_entry(workspace, filename)
+    await state.update_data(pending=PendingHost(workspace=workspace, entry_name=entry_name, bot_record_id=bot_rec["id"], bot_name=bot_rec["name"]).__dict__)
 
     await message.answer(
         "🔐 Please send your bot token (e.g. " + code("123456:ABC-DEF...") + ")",
@@ -334,10 +344,10 @@ async def handle_token(message: Message, state: FSMContext):
 
     # Build and deploy
     await message.answer("🔧 Setting up your hosting environment...", reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")), parse_mode=ParseMode.HTML)
-    ok, runtime_id, err = build_and_run(message.from_user.id, pending.bot_record_id, token, pending.workspace)
+    ok, runtime_id, err = build_and_run(message.from_user.id, pending.bot_record_id, token, pending.workspace, entry=pending.entry_name)
     if not ok:
         await message.answer(
-            f"{bold('⚠️ Setup failed')}\nPlease double-check your code or try again later.\nTip: Make sure your main file is named " + code("bot.py") + " and uses valid Python imports.",
+            f"{bold('⚠️ Setup failed')}\nPlease double-check your code or try again later.\nTip: Ensure your entry file runs with `python {code(pending.entry_name or 'your_file.py')}` locally and uses valid imports.",
             reply_markup=main_menu(get_user(message.from_user.id).get("is_premium")),
             parse_mode=ParseMode.HTML,
         )
@@ -434,7 +444,7 @@ async def forward_to_admin(message: Message):
 async def cb_how(cb: CallbackQuery):
     text = (
         "📘 How it Works\n"
-        "• Upload your bot code (prefer " + code("bot.py") + " or a .zip).\n"
+        "• Upload your bot code (.py or a .zip). We auto-detect your entry file.\n"
         "• Send your bot token.\n"
         "• We prepare a secure runtime and get your bot online.\n"
         "• Free plan: 1 hour uptime; Premium: unlimited.\n"

@@ -75,7 +75,7 @@ def detect_requirements(workspace: str) -> List[str]:
 
 
 def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, requirements: Optional[List[str]] = None):
-    # Runner just executes bot.py; token is passed via TELEGRAM_TOKEN env var
+    # Runner executes the detected entry file; token is passed via TELEGRAM_TOKEN env var
     entry_file = entry or "bot.py"
     runner = os.path.join(workspace, "gravix_runner.sh")
     with open(runner, "w") as f:
@@ -94,21 +94,21 @@ def write_runner_and_dockerfile(workspace: str, entry: Optional[str] = None, req
             # write requirements.txt
             req_path = os.path.join(workspace, "requirements.autodetected.txt")
             with open(req_path, "w") as rf:
-                rf.write("\\n".join(requirements))
-            f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\\n")
-            f.write("RUN pip install -r requirements.autodetected.txt || true\\n")
+                rf.write("\n".join(requirements))
+            f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
+            f.write("RUN pip install -r requirements.autodetected.txt || true\n")
         else:
-            f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\\n")
-        f.write("ENV PYTHONUNBUFFERED=1\\n")
-        f.write("CMD [\"/app/gravix_runner.sh\"]\\n")
+            f.write("RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n")
+        f.write("ENV PYTHONUNBUFFERED=1\n")
+        f.write("CMD [\"/app/gravix_runner.sh\"]\n")
 
 
-def build_and_run(user_id: int, bot_id: str, token: str, workspace: str) -> Tuple[bool, Optional[str], Optional[str]]:
+def build_and_run(user_id: int, bot_id: str, token: str, workspace: str, entry: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
     client = docker_from_env()
     image_tag = f"gravixhost_{user_id}_{bot_id}".lower()
     try:
         requirements = detect_requirements(workspace)
-        write_runner_and_dockerfile(workspace, requirements=requirements)
+        write_runner_and_dockerfile(workspace, entry=entry, requirements=requirements)
         # Build
         log_event(f"Building runtime for {bot_id}")
         client.images.build(path=workspace, tag=image_tag, rm=True)
