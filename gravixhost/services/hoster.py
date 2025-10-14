@@ -21,17 +21,46 @@ _PYPI_MAP = {
     "bs4": "beautifulsoup4",
     "yaml": "pyyaml",
     "Crypto": "pycryptodome",
+    # Common mismatches / case variants
+    "OpenSSL": "pyOpenSSL",
+    "configparser": "configparser",
+    "ConfigParser": None,  # stdlib in py3 under 'configparser' - skip auto-install
+    "HTMLParser": None,    # stdlib in py3 under 'html.parser' - skip auto-install
+    "Queue": None,         # stdlib in py3 under 'queue'
+    "StringIO": None,      # stdlib in py3 under 'io'
 }
 
 # Modules that should never be attempted to install via pip (stdlib, meta, placeholders)
 _BLACKLIST = {
+    # Python 3 stdlib (common)
     "__builtin__", "builtins", "__future__", "typing", "dataclasses", "asyncio",
     "sys", "os", "json", "re", "time", "datetime", "pathlib", "subprocess", "logging",
     "itertools", "functools", "collections", "math", "random", "hashlib", "hmac",
     "base64", "threading", "multiprocessing", "urllib", "http", "email", "sqlite3",
     "csv", "statistics", "enum", "types", "contextlib", "tempfile", "zipfile",
     "tarfile", "shutil", "glob", "fnmatch", "importlib", "inspect", "traceback",
-    "argparse", "getopt", "site", "builtins", "io"
+    "argparse", "getopt", "site", "builtins", "io", "pickle", "socket", "select",
+    "ssl", "struct", "json", "re", "math", "decimal", "fractions", "numbers",
+    "abc", "array", "atexit", "binascii", "bisect", "bz2", "calendar", "cgi",
+    "codecs", "colorsys", "compileall", "concurrent", "ctypes", "difflib",
+    "distutils", "doctest", "enum", "errno", "faulthandler", "filecmp", "fileinput",
+    "gc", "getopt", "getpass", "gettext", "gzip", "heapq", "hmac", "html", "html.parser",
+    "http.client", "http.server", "imaplib", "ipaddress", "keyword", "linecache",
+    "locale", "logging", "lzma", "mailbox", "mailcap", "marshal", "mimetypes",
+    "mmap", "msvcrt", "netrc", "nis", "nntplib", "ntpath", "operator", "optparse",
+    "os.path", "plistlib", "platform", "poplib", "posix", "pprint", "pty", "pwd",
+    "py_compile", "queue", "quopri", "reprlib", "resource", "sched", "secrets",
+    "selectors", "shelve", "shlex", "signal", "site", "smtpd", "smtplib", "sndhdr",
+    "socketserver", "sqlite3", "ssl", "stat", "statistics", "string", "stringprep",
+    "sunau", "symtable", "sysconfig", "tabnanny", "telnetlib", "tempfile", "termios",
+    "textwrap", "threading", "timeit", "tkinter", "token", "tokenize", "trace",
+    "tracemalloc", "turtle", "types", "typing", "unicodedata", "unittest", "urllib",
+    "uuid", "venv", "warnings", "wave", "weakref", "webbrowser", "xml", "xmlrpc",
+    "zipapp", "zipfile", "zoneinfo",
+    # Python 2-only names that should not be pip-installed
+    "Queue", "StringIO", "ConfigParser", "HTMLParser", "httplib", "urlparse",
+    "cookielib", "cPickle", "SimpleHTTPServer", "BaseHTTPServer", "SocketServer",
+    "htmlentitydefs", "imp", "dummy_thread", "dummy_threading",
 }
 
 
@@ -68,6 +97,7 @@ def _normalize_requirement(name: str) -> Optional[str]:
     - Maps common import names to their actual PyPI package
     - Filters obviously invalid placeholders (e.g., '%(module)s')
     - Skips stdlib and blacklisted module names
+    - Skips suspicious names (uppercase module names) unless explicitly mapped
     """
     if not name:
         return None
@@ -90,7 +120,18 @@ def _normalize_requirement(name: str) -> Optional[str]:
     # Skip private/dunder and blacklisted names
     if base.startswith("_") or base in _BLACKLIST:
         return None
-    return _PYPI_MAP.get(base, base)
+    # Heuristic: skip names that contain uppercase letters unless we have an explicit map
+    if any(c.isupper() for c in base) and base not in _PYPI_MAP:
+        return None
+    # Map common aliases
+    mapped = _PYPI_MAP.get(base, base)
+    if mapped is None:
+        return None
+    # Final guard: basic sanity check to avoid clearly invalid package names
+    import re
+    if not re.match(r"^[a-z0-9][a-z0-9._+-]*$", mapped):
+        return None
+    return mapped
 
 
 def detect_requirements(workspace: str) -> List[str]:

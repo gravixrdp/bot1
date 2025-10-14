@@ -333,10 +333,10 @@ async def help_restart_my_bot(message: Message):
     if not bots:
         await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    lines = [bold("♻️ Restart My Bot"), "Copy the ID and send: " + code("restar <tbot_id>"), ""]
+    lines = [bold("♻️ Restart My Bot"), "Copy the ID and send: " + code("restart <bot_id>"), ""]
     for b in bots:
         lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
-    await message.answer("\n".joinL)
+    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text.regexp(r"^stop\s+\S+$"))
