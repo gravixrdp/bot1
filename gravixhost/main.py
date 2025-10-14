@@ -238,7 +238,13 @@ async def on_manage_bots(message: Message):
     else:
         for b in bots:
             lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
-    lines.append("\nUse the buttons below. For stop/restart, send: " + code("stop <bot_id>") + " / " + code("restart <bot_id>"))
+    lines.append(
+        "\nUse the buttons below.\nCommands: "
+        + code("stop <bot_id>") + " / "
+        + code("restart <bot_id>") + " / "
+        + code("remove <bot_id>") + " / "
+        + code("logs <bot_id>")
+    )
     await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
@@ -265,22 +271,72 @@ async def my_logs(message: Message):
         ev = entry.get("event", "")
         if any(bid in ev for bid in my_ids) or str(message.from_user.id) in ev:
             logs.append(f"• {entry.get('time','')} — {ev}")
-        if len(logs) >= 20:
+        if len(logs) >= 50:
             break
     if not logs:
         await message.answer(bold("No logs yet."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
         return
-    await message.answer(bold("🧾 Your Logs (last 20)") + "\n" + "\n".join(logs), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    # Split into safe chunks to avoid Telegram message length limit (~4096 chars)
+    header = bold("🧾 Your Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "🗑️ Remove My Bot")
+async def help_remove_my_bot(message: Message):
+    bots = get_user_bots(message.from_user.id)
+    if not bots:
+        await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    lines = [bold("🗑️ Remove My Bot"), "Copy the ID and send: " + code("remove <bot_id>"), ""]
+    for b in bots:
+        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text == "📜 Bot Logs")
+async def help_logs_my_bot(message: Message):
+    bots = get_user_bots(message.from_user.id)
+    if not bots:
+        await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    lines = [bold("📜 Bot Logs"), "Copy the ID and send: " + code("logs <bot_id>"), ""]
+    for b in bots:
+        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])}")
+    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🛑 Stop My Bot")
 async def help_stop_my_bot(message: Message):
-    await message.answer("Send: " + code("stop <bot_id>"), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    bots = get_user_bots(message.from_user.id)
+    if not bots:
+        await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    lines = [bold("🛑 Stop My Bot"), "Copy the ID and send: " + code("stop <bot_id>"), ""]
+    for b in bots:
+        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    await message.answer("\n".join(lines), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "♻️ Restart My Bot")
 async def help_restart_my_bot(message: Message):
-    await message.answer("Send: " + code("restart <bot_id>"), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+    bots = get_user_bots(message.from_user.id)
+    if not bots:
+        await message.answer(bold("You have no bots."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    lines = [bold("♻️ Restart My Bot"), "Copy the ID and send: " + code("restar <tbot_id>"), ""]
+    for b in bots:
+        lines.append(f"• {bold(b.get('name') or 'MyBot')} — ID {code(b['id'])} — Status: {bold(b['status'])}")
+    await message.answer("\n".joinL)
 
 
 @router.message(F.text.regexp(r"^stop\s+\S+$"))
@@ -313,6 +369,60 @@ async def user_restart_bot(message: Message):
         await message.answer(f"♻️ Restarted {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
     else:
         await message.answer("Failed to restart.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^remove\s+\S+$"))
+async def user_remove_bot(message: Message):
+    bot_id = message.text.strip().split()[1]
+    from .storage import get_bot, delete_bot
+    from .services.hoster import stop_runtime, remove_workspace, remove_image
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != message.from_user.id:
+        await message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    rid = b.get("runtime_id")
+    if rid:
+        stop_runtime(rid)
+    image_tag = f"gravixhost_{b['owner_id']}_{bot_id}".lower()
+    remove_image(image_tag)
+    if b.get("path"):
+        remove_workspace(b["path"])
+    delete_bot(bot_id)
+    await message.answer(f"🗑️ Removed {code(bot_id)}", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+
+
+@router.message(F.text.regexp(r"^logs\s+\S+$"))
+async def user_logs_bot(message: Message):
+    bot_id = message.text.strip().split()[1]
+    from .storage import get_bot, _read_db
+    b = get_bot(bot_id)
+    if not b or b["owner_id"] != message.from_user.id:
+        await message.answer("Bot not found or not yours.", reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    db = _read_db()
+    logs = []
+    for entry in reversed(db.get("logs", [])):
+        ev = entry.get("event", "")
+        if bot_id in ev:
+            logs.append(f"• {entry.get('time','')} — {ev}")
+        if len(logs) >= 50:
+            break
+    if not logs:
+        await message.answer(bold("No logs for this bot."), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+        return
+    # Chunked send
+    header = bold("🧾 Bot Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=user_manage_menu(), parse_mode=ParseMode.HTML)
 
 
 @router.message(F.text == "🏠 Main Menu")

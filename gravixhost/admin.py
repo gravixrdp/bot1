@@ -83,7 +83,10 @@ async def admin_apps_msg(message: Message):
             f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))} — "
             f"Status: {bold(b['status'])}"
         )
-    text.append("\n" + bold("Admin commands:") + "\n<code>stopbot &lt;id&gt;</code>  <code>restartbot &lt;id&gt;</code>  <code>removebot &lt;id&gt;</code>")
+    text.append(
+        "\n" + bold("Admin commands:") +
+        "\n" + code("stopbot <id>") + "  " + code("restartbot <id>") + "  " + code("removebot <id>") + "  " + code("logsbot <id>")
+    )
     await message.answer("\n".join(text), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
@@ -116,17 +119,25 @@ async def admin_main_menu_msg(message: Message):
 
 
 # Quick-action helper buttons (send usage if no id provided)
-@router.message(F.text.in_(["stopbot", "restartbot", "removebot"]))
+@router.message(F.text.in_(["stopbot", "restartbot", "removebot", "logsbot"]))
 async def admin_action_help(message: Message):
     if not is_admin(message.from_user.id):
         return
     action = message.text.strip()
-    usage = {
+    usage_map = {
         "stopbot": "stopbot <id>",
         "restartbot": "restartbot <id>",
         "removebot": "removebot <id>",
-    }[action]
-    await message.answer(f"Usage: {code(usage)}", parse_mode=ParseMode.HTML, reply_markup=admin_menu_apps())
+        "logsbot": "logsbot <id>",
+    }
+    usage = usage_map[action]
+    # Also list bots with IDs for convenience
+    db = _read_db()
+    lines = [bold("📦 Bots List")]
+    for b in db["bots"].values():
+        lines.append(f"• {bold(b.get('name') or 'Unknown')} — ID {code(b['id'])} — Owner {code(str(b['owner_id']))}")
+    lines.append("\nSend: " + code(usage))
+    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=admin_menu_apps())
 
 
 # Existing command regex handlers (with IDs)
@@ -137,8 +148,39 @@ async def premium_set(message: Message):
     parts = message.text.strip().split()
     user_id = int(parts[1])
     days = int(parts[2])
+
+    # Capture previous state
+    prev = get_user(user_id)
+    was_premium = bool(prev.get("is_premium"))
+
     set_premium(user_id, days)
-    await message.answer(f"✅ Premium set for {code(str(user_id))} for {days} days.", parse_mode=ParseMode.HTML, reply_markup=admin_menu())
+
+    # Notify admin
+    await message.answer(
+        f"✅ Premium set for {code(str(user_id))} for {days} days.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=admin_menu(),
+    )
+
+    # Notify the target user
+    try:
+        from datetime import datetime
+        updated = get_user(user_id)
+        expiry_str = updated.get("premium_expiry")
+        expiry_text = human_dt(datetime.fromisoformat(expiry_str)) if expiry_str else "Not set"
+        await message.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "🎉 " + str(bold("Premium Activated")) + "\n"
+                f"• Duration: {bold(str(days))} days\n"
+                f"• Expires on: {bold(expiry_text)}\n"
+                "Enjoy unlimited uptime and premium features!"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        # Silent fail if bot can't message the user (e.g., user never started the bot)
+        pass
 
 
 @router.message(F.text.regexp(r"^unpremium\s+\d+$"))
@@ -208,6 +250,37 @@ async def admin_removebot(message: Message):
         remove_workspace(b["path"])
     delete_bot(bot_id)
     await message.answer(f"🗑️ Removed {code(bot_id)}", parse_mode=ParseMode.HTML, reply_markup=admin_menu_apps())
+
+
+@router.message(F.text.regexp(r"^logsbot\s+\S+$"))
+async def admin_logsbot(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    bot_id = message.text.strip().split()[1]
+    db = _read_db()
+    logs = []
+    for entry in reversed(db.get("logs", [])):
+        ev = entry.get("event", "")
+        if bot_id in ev:
+            logs.append(f"• {entry.get('time','')} — {ev}")
+        if len(logs) >= 100:
+            break
+    if not logs:
+        await message.answer(bold("No logs for this bot."), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+        return
+    # Chunked send
+    header = bold("🧾 Bot Logs")
+    chunk = []
+    current_len = 0
+    for line in logs:
+        if current_len + len(line) + 1 > 3500:
+            await message.answer(header + "\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
+            chunk = []
+            current_len = 0
+        chunk.append(line)
+        current_len += len(line) + 1
+    if chunk:
+        await message.answer(header + " (cont.)\n" + "\n".join(chunk), reply_markup=admin_menu_apps(), parse_mode=ParseMode.HTML)
 
 
 # Keep callback-based handlers for backward compatibility (not used by the new UI)
