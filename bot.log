@@ -1,0 +1,5 @@
+nohup: ignoring input
+Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 104] Connection reset by peer
+Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8318430595)
+Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 104] Connection reset by peer
+Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8318430595)
